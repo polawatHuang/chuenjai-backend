@@ -4,31 +4,28 @@ const pool = require("../db");
 
 router.get("/", async (req, res) => {
   try {
-    const result = await pool.query(
+    const [rows] = await pool.query(
       "SELECT * FROM news ORDER BY published_at DESC"
     );
-    res.json(result.rows);
+
+    res.json(rows);
   } catch (err) {
     console.error(err);
-    res.status(500).json({
-      error: "Database query failed"
-    });
+    res.status(500).json({ error: "Database query failed" });
   }
 });
 
 router.get("/:id", async (req, res) => {
   try {
-    const result = await pool.query(
-      "SELECT * FROM news WHERE id=$1",
+    const [rows] = await pool.query(
+      "SELECT * FROM news WHERE id = ?",
       [req.params.id]
     );
 
-    res.json(result.rows[0]);
+    res.json(rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).json({
-      error: "Database query failed"
-    });
+    res.status(500).json({ error: "Database query failed" });
   }
 });
 
