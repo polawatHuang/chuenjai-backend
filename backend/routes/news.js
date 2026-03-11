@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../db");
 const scrapeDailynews = require("../scrapers/dailynews");
-const scrapeThairath = require("../scrapers/thailath");
+const scrapeThairath = require("../scrapers/thairath");
 
 router.post("/refresh", async (req, res) => {
   try {
