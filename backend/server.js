@@ -15,6 +15,13 @@ app.use(cors());
 app.use(express.json());
 
 app.use("/api/news", newsRoutes);
+// Manual trigger for testing
+app.get("/api/news-refresh", async (req, res) => {
+  console.log("Manual refresh triggered...");
+  const result = await refreshNews();
+  res.json(result);
+});
+
 app.use("/api/health", healthRoutes);
 
 cron.schedule("0 7 * * *", async () => {

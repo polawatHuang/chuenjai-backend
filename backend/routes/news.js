@@ -6,7 +6,6 @@ const scrapeThairath = require("../scrapers/thairath");
 
 router.post("/refresh", async (req, res) => {
   try {
-
     // 1️⃣ delete old news
     await pool.query(`
       DELETE FROM news
@@ -22,25 +21,34 @@ router.post("/refresh", async (req, res) => {
     let inserted = 0;
 
     for (const n of allNews) {
+      // ✅ เพิ่มการเช็ก !n.link เพื่อความชัวร์ (เหมือนโค้ดเดิมของคุณ)
+      if (!n.title || !n.link) continue; 
 
-      if (!n.title) continue;
+      try {
+        await pool.query(
+          `
+          INSERT INTO news
+          (title, image_url, source, source_url, published_at)
+          VALUES (?, ?, ?, ?, NOW())
+          `,
+          [
+            n.title,
+            n.image || null,
+            n.source,
+            n.link
+          ]
+        );
 
-      await pool.query(
-        `
-        INSERT INTO news
-        (title, image_url, source, source_url, published_at)
-        VALUES (?, ?, ?, ?, NOW())
-        `,
-        [
-          n.title,
-          n.image || null,
-          n.source,
-          n.link
-        ]
-      );
+        inserted++;
 
-      inserted++;
-
+      } catch (insertErr) {
+        // ✅ ดักจับ Error เฉพาะตอน Insert
+        // ถ้ารหัส Error ไม่ใช่ข่าวซ้ำ (ER_DUP_ENTRY) ค่อย log ออกมาดู
+        if (insertErr.code !== "ER_DUP_ENTRY") {
+          console.error(`Insert error for "${n.title}":`, insertErr.message);
+        }
+        // ถ้าเป็นข่าวซ้ำ ลูปก็จะข้ามไปทำข่าวต่อไปได้อย่างปลอดภัยครับ
+      }
     }
 
     res.json({
@@ -50,14 +58,11 @@ router.post("/refresh", async (req, res) => {
     });
 
   } catch (err) {
-
-    console.error(err);
-
+    console.error("Refresh route crashed:", err);
     res.status(500).json({
       error: "refresh failed",
       message: err.message
     });
-
   }
 });
 
