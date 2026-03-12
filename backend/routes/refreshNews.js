@@ -6,10 +6,10 @@ async function refreshNews() {
   try {
     console.log("Starting reliable RSS news refresh...");
 
-    // 1️⃣ delete news older than 7 days
+    // 1️⃣ delete news older than 3 days
     const [deleted] = await pool.query(`
       DELETE FROM news
-      WHERE created_at < NOW() - INTERVAL 7 DAY
+      WHERE created_at < NOW() - INTERVAL 3 DAY
     `);
 
     // 2️⃣ ดึงข่าวจาก RSS Feeds (ใส่เพิ่มได้ตามใจชอบ!)
