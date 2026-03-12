@@ -51,9 +51,11 @@ async function refreshNews() {
       } catch (err) {
 
         // duplicate protection
-        if (err.code !== "ER_DUP_ENTRY") {
-          console.error("Insert error:", err.message);
-        }
+        // if (err.code !== "ER_DUP_ENTRY") {
+        //  console.error("Insert error:", err.message);
+        // }
+
+        console.error("🚨 DATABASE ERROR:", err.message);
 
       }
 
