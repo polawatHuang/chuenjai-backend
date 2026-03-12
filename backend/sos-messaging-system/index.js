@@ -1,5 +1,6 @@
 const express = require('express');
 const line = require('@line/bot-sdk');
+const { getGreetingMessage } = require('../hellow-message');
 
 const router = express.Router();
 
@@ -71,6 +72,15 @@ async function handleEvent(event) {
         }
       });
     }
+  }
+
+  // ==========================================
+  // Flow: ส่งคำอวยพร (รูปสวัสดีประจำวัน)
+  // ==========================================
+  if (text === 'ส่งคำอวยพร') {
+    // เรียกใช้ฟังก์ชันสุ่มรูปที่เราเขียนแยกไว้
+    const replyMessage = await getGreetingMessage();
+    return client.replyMessage(event.replyToken, replyMessage);
   }
 
   // ==========================================
