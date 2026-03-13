@@ -3,8 +3,6 @@ const cron = require("node-cron");
 const express = require("express");
 const cors = require("cors");
 const db = require("./db");
-const cors = require("cors");
-app.use(cors()); // สำคัญมาก! ต้องมีบรรทัดนี้เพื่อให้ Port 3000 คุยกับ 4000 ได้
 
 // Import Routes
 const newsRoutes = require("./routes/news");
