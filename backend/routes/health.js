@@ -8,6 +8,8 @@ router.get("/", async (req, res) => {
   let dbStatus = "ok";
   let newsStatus = "error";
   let sosStatus = "error";
+  let checkNumberStatus = "error";
+  let reportNumberStatus = "error";
 
   // กำหนด Base URL สำหรับเรียกหาตัวเอง (Loopback)
   const port = process.env.PORT || 4000;
@@ -20,14 +22,11 @@ router.get("/", async (req, res) => {
     dbStatus = "error";
   }
 
-  // 2. ตรวจสอบสถานะ API /news (จำลองการดึงข้อมูล GET)
+  // 2. ตรวจสอบสถานะ API /news
   try {
-    // ใส่ AbortSignal เพื่อป้องกันกรณีเซิร์ฟเวอร์ค้างแล้ว Health check จะค้างตาม (Timeout 3 วินาที)
     const newsRes = await fetch(`${baseUrl}/api/news`, { 
       signal: AbortSignal.timeout(3000) 
     });
-    
-    // หากตอบกลับเป็น 2xx ถือว่าปกติ
     if (newsRes.ok) {
       newsStatus = "ok";
     } else {
@@ -37,15 +36,12 @@ router.get("/", async (req, res) => {
     newsStatus = "down or timeout";
   }
 
-  // 3. ตรวจสอบสถานะ SOS Webhook (จำลองการยิง POST)
+  // 3. ตรวจสอบสถานะ SOS Webhook
   try {
     const sosRes = await fetch(`${baseUrl}/webhook`, { 
       method: "POST",
       signal: AbortSignal.timeout(3000) 
     });
-    
-    // Webhook ของ LINE จะตรวจจับว่าไม่มี Signature จึงอาจตอบ 400, 401 หรือ 500
-    // ซึ่งถ้าไม่ได้ตอบ 404 (Not Found) แปลว่าตัว Route SOS ถูกตั้งค่าและยังทำงานอยู่
     if (sosRes.status !== 404) {
       sosStatus = "ok";
     } else {
@@ -55,17 +51,61 @@ router.get("/", async (req, res) => {
     sosStatus = "down or timeout";
   }
 
+  // 4. ตรวจสอบสถานะ API เช็คเบอร์มิจฉาชีพ (ลองใช้เบอร์สมมติ 0000000000)
+  try {
+    const checkRes = await fetch(`${baseUrl}/api/check-number/0000000000`, { 
+      signal: AbortSignal.timeout(3000) 
+    });
+    if (checkRes.ok) {
+      checkNumberStatus = "ok";
+    } else {
+      checkNumberStatus = `error (status: ${checkRes.status})`;
+    }
+  } catch (error) {
+    checkNumberStatus = "down or timeout";
+  }
+
+  // 5. ตรวจสอบสถานะ API แจ้งเบอร์มิจฉาชีพ
+  try {
+    const reportRes = await fetch(`${baseUrl}/api/report-number`, { 
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}), // ส่ง Object ว่างไปเพื่อทดสอบให้ติด Validation
+      signal: AbortSignal.timeout(3000) 
+    });
+    
+    // หากระบบตอบ 400 Bad Request (เพราะไม่มีเบอร์ส่งไป) แปลว่า Route ทำงานปกติและดักจับ Error ได้ถูกต้อง
+    if (reportRes.status === 400 || reportRes.ok) {
+      reportNumberStatus = "ok";
+    } else if (reportRes.status === 404) {
+      reportNumberStatus = "not found";
+    } else {
+      reportNumberStatus = `error (status: ${reportRes.status})`;
+    }
+  } catch (error) {
+    reportNumberStatus = "down or timeout";
+  }
+
   const responseTime = Date.now() - start;
+  
+  // เช็คว่าบริการทุกตัวต้องทำงานปกติ สถานะโดยรวมจึงจะเป็น ok
+  const isSystemOk = dbStatus === "ok" && 
+                     newsStatus === "ok" && 
+                     sosStatus === "ok" && 
+                     checkNumberStatus === "ok" && 
+                     reportNumberStatus === "ok";
 
   res.json({
-    status: (dbStatus === "ok" && newsStatus === "ok" && sosStatus === "ok") ? "ok" : "degraded",
+    status: isSystemOk ? "ok" : "degraded",
     timestamp: new Date().toISOString(),
 
     services: {
       api: "ok",
       database: dbStatus,
       news_api: newsStatus,
-      sos_system: sosStatus
+      sos_system: sosStatus,
+      check_number_api: checkNumberStatus,
+      report_number_api: reportNumberStatus
     },
 
     system: {
