@@ -43,7 +43,8 @@ app.get("/api/news-refresh", async (req, res) => {
 
 // API เช็คเบอร์มิจฉาชีพ
 app.get('/api/check-number/:phone', async (req, res) => {
-  const phone = req.params.phone;
+  let phone = req.params.phone;
+  phone = phone.replace(/\D/g, ''); // ตัดทุกอย่างที่ไม่ใช่ตัวเลขทิ้ง
   const sql = `SELECT report_type, COUNT(*) as count FROM phone_reports WHERE phone_number = ? GROUP BY report_type`;
   try {
     const results = await new Promise((resolve, reject) => {
@@ -70,13 +71,14 @@ app.get('/api/check-number/:phone', async (req, res) => {
 // API สำหรับรายงานเบอร์มิจฉาชีพ
 app.post('/api/report-number', async (req, res) => {
   const { phone, report_type } = req.body;
-  if (!phone || !report_type) {
+  const cleanPhone = phone.replace(/\D/g, ''); // ตัดทุกอย่างที่ไม่ใช่ตัวเลขทิ้ง
+  if (!cleanPhone || !report_type) {
     return res.status(400).json({ error: "กรุณากรอกเบอร์โทรศัพท์ของมิจฉาชีพและประเภทการรายงาน" });
   }
   const sql = `INSERT INTO phone_reports (phone_number, report_type) VALUES (?, ?)`;
   try {
     await new Promise((resolve, reject) => {
-      db.query(sql, [phone, report_type], (err, results) => {
+      db.query(sql, [cleanPhone, report_type], (err, results) => {
         if (err) {
           reject(err);
         } else {
