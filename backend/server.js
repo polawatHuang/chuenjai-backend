@@ -45,20 +45,16 @@ app.get("/api/news-refresh", async (req, res) => {
 app.get('/api/check-number/:phone', async (req, res) => {
   let phone = req.params.phone;
   phone = phone.replace(/\D/g, ''); // ตัดทุกอย่างที่ไม่ใช่ตัวเลขทิ้ง
+  
   const sql = `SELECT report_type, COUNT(*) as count FROM phone_reports WHERE phone_number = ? GROUP BY report_type`;
+  
   try {
-    const results = await new Promise((resolve, reject) => {
-      db.query(sql, [phone], (err, results) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(results);
-        }
-      });
-    });
+    // 🌟 แก้ตรงนี้: ใช้ await db.query() ได้เลย โค้ดจะสั้นและคลีนมาก
+    // สังเกตว่าต้องใส่ [results] ครอบไว้ เพราะ mysql2/promise จะ return เป็น array [rows, fields]
+    const [results] = await db.query(sql, [phone]);
 
     if (results.length > 0) {
-      res.json({ safe: false, data: results, message: `แจ้งเตือน! เบอร์ ${phone} เคยถูกแจ้งเตือนว่าเป็น${results[0].report_type} ซึ่งเป็นมิจฉาชีพ` });
+      res.json({ safe: false, data: results, message: `แจ้งเตือน! เบอร์ ${phone} เคยถูกแจ้งเตือนว่าเป็น ${results[0].report_type}` });
     } else {
       res.json({ safe: true, data: null, message: `เบอร์ ${phone} ยังไม่เคยถูกแจ้งเตือนว่าเป็นมิจฉาชีพ` });
     }
@@ -71,21 +67,18 @@ app.get('/api/check-number/:phone', async (req, res) => {
 // API สำหรับรายงานเบอร์มิจฉาชีพ
 app.post('/api/report-number', async (req, res) => {
   const { phone, report_type } = req.body;
-  const cleanPhone = phone.replace(/\D/g, ''); // ตัดทุกอย่างที่ไม่ใช่ตัวเลขทิ้ง
-  if (!cleanPhone || !report_type) {
+  
+  if (!phone || !report_type) {
     return res.status(400).json({ error: "กรุณากรอกเบอร์โทรศัพท์ของมิจฉาชีพและประเภทการรายงาน" });
   }
+
+  const cleanPhone = phone.replace(/\D/g, ''); 
   const sql = `INSERT INTO phone_reports (phone_number, report_type) VALUES (?, ?)`;
+  
   try {
-    await new Promise((resolve, reject) => {
-      db.query(sql, [cleanPhone, report_type], (err, results) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(results);
-        }
-      });
-    });
+    // 🌟 แก้ตรงนี้เหมือนกัน: ไม่ต้องใช้ Callback หรือ new Promise แล้ว
+    await db.query(sql, [cleanPhone, report_type]);
+    
     res.status(201).json({ success: true, message: "ขอบคุณสำหรับการรายงาน! ข้อมูลของคุณจะช่วยให้ผู้อื่นปลอดภัยมากขึ้น" });
   } catch (err) {
     console.error("Database Error:", err);
