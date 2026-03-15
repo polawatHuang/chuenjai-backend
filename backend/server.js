@@ -34,16 +34,21 @@ app.use(express.json());
 app.use("/api/news", newsRoutes);
 app.use("/api/health", healthRoutes);
 
+// ==========================================
+// 1. USERS API (จัดการผู้ใช้งานและคะแนน)
+// ==========================================
+
 // ดูข้อมูล User และคะแนน (ดึงตาม ID)
 app.get('/api/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await db.query('SELECT * FROM users WHERE id = $1', [id]);
+    // 🌟 เปลี่ยน $1 เป็น ? และใส่ [results]
+    const [results] = await db.query('SELECT * FROM users WHERE id = ?', [id]);
     
-    if (result.rows.length === 0) {
+    if (results.length === 0) {
       return res.status(404).json({ message: 'User not found' });
     }
-    res.json(result.rows[0]);
+    res.json(results[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -55,13 +60,16 @@ app.put('/api/users/:id/points', async (req, res) => {
     const { id } = req.params;
     const { point_change } = req.body; // ใส่ค่าบวกเพื่อเพิ่ม ค่าลบเพื่อลด
 
-    const result = await db.query(
-      'UPDATE users SET point = point + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
+    // 🌟 MySQL ไม่มี RETURNING * จึงต้องสั่ง UPDATE ก่อน แล้วค่อย SELECT กลับมาดู
+    await db.query(
+      'UPDATE users SET point = point + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       [point_change, id]
     );
 
-    if (result.rows.length === 0) return res.status(404).json({ message: 'User not found' });
-    res.json({ message: 'Points updated', user: result.rows[0] });
+    const [updatedUser] = await db.query('SELECT * FROM users WHERE id = ?', [id]);
+
+    if (updatedUser.length === 0) return res.status(404).json({ message: 'User not found' });
+    res.json({ message: 'Points updated', user: updatedUser[0] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -76,13 +84,17 @@ app.post('/api/lucky-spin/log', async (req, res) => {
   try {
     const { item_name, winner_name, winner_phone, winner_address } = req.body;
     
-    const result = await db.query(
+    // 🌟 เปลี่ยน $1, $2.. เป็น ?, ?.. และเอา RETURNING * ออก
+    const [result] = await db.query(
       `INSERT INTO lucky_spin_log (item_name, winner_name, winner_phone, winner_address) 
-       VALUES ($1, $2, $3, $4) RETURNING *`,
+       VALUES (?, ?, ?, ?)`,
       [item_name, winner_name, winner_phone, winner_address]
     );
     
-    res.status(201).json({ message: 'Log saved successfully', data: result.rows[0] });
+    res.status(201).json({ 
+      message: 'Log saved successfully', 
+      insertId: result.insertId // คืนค่า ID ที่เพิ่ง insert ลงไป
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -91,11 +103,10 @@ app.post('/api/lucky-spin/log', async (req, res) => {
 // ดึงรายชื่อผู้โชคดีล่าสุด (เอาไปแสดงในป้ายประกาศผล)
 app.get('/api/lucky-spin/winners', async (req, res) => {
   try {
-    // ดึง 10 คนล่าสุด
-    const result = await db.query(
+    const [results] = await db.query(
       'SELECT item_name, winner_name FROM lucky_spin_log ORDER BY created_at DESC LIMIT 10'
     );
-    res.json(result.rows);
+    res.json(results);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -108,8 +119,8 @@ app.get('/api/lucky-spin/winners', async (req, res) => {
 // ดึงรายการของรางวัลทั้งหมดไปแสดงในหน้า Rewards
 app.get('/api/items', async (req, res) => {
   try {
-    const result = await db.query('SELECT * FROM items ORDER BY point ASC');
-    res.json(result.rows);
+    const [results] = await db.query('SELECT * FROM items ORDER BY point ASC');
+    res.json(results);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -117,22 +128,25 @@ app.get('/api/items', async (req, res) => {
 
 // ระบบแลกของรางวัล (ใช้ Transaction เพื่อป้องกันข้อผิดพลาด)
 app.post('/api/redeem', async (req, res) => {
-  const client = await db.connect();
+  // 🌟 สำหรับ MySQL (mysql2/promise) จะใช้ getConnection() 
+  let connection;
   try {
+    connection = await db.getConnection();
+    await connection.beginTransaction(); // เริ่ม Transaction
+
     const { user_id, item_id } = req.body;
-    await client.query('BEGIN'); // เริ่ม Transaction
 
     // 1. ดึงข้อมูล User และ Item
-    const userRes = await client.query('SELECT point FROM users WHERE id = $1', [user_id]);
-    const itemRes = await client.query('SELECT name, point FROM items WHERE id = $1', [item_id]);
+    const [userRes] = await connection.query('SELECT point FROM users WHERE id = ?', [user_id]);
+    const [itemRes] = await connection.query('SELECT name, point FROM items WHERE id = ?', [item_id]);
 
-    if (userRes.rows.length === 0 || itemRes.rows.length === 0) {
+    if (userRes.length === 0 || itemRes.length === 0) {
       throw new Error('User or Item not found');
     }
 
-    const userPoints = userRes.rows[0].point;
-    const requiredPoints = itemRes.rows[0].point;
-    const itemName = itemRes.rows[0].name;
+    const userPoints = userRes[0].point;
+    const requiredPoints = itemRes[0].point;
+    const itemName = itemRes[0].name;
 
     // 2. เช็คว่าคะแนนพอไหม
     if (userPoints < requiredPoints) {
@@ -140,18 +154,18 @@ app.post('/api/redeem', async (req, res) => {
     }
 
     // 3. หักคะแนน User
-    await client.query(
-      'UPDATE users SET point = point - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+    await connection.query(
+      'UPDATE users SET point = point - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       [requiredPoints, user_id]
     );
 
-    await client.query('COMMIT'); // ยืนยัน Transaction
+    await connection.commit(); // ยืนยัน Transaction
     res.json({ message: `Successfully redeemed: ${itemName}`, deducted_points: requiredPoints });
   } catch (err) {
-    await client.query('ROLLBACK'); // ถ้ายกเลิกหรือ Error ให้ย้อนกลับข้อมูล
+    if (connection) await connection.rollback(); // ถ้ายกเลิกหรือ Error ให้ย้อนกลับข้อมูล
     res.status(400).json({ error: err.message });
   } finally {
-    client.release();
+    if (connection) connection.release(); // สำคัญมาก! ต้องคืน connection กลับสู่ pool เสมอ
   }
 });
 
