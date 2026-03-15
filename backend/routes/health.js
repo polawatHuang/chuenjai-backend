@@ -5,27 +5,25 @@ const pool = require("../db");
 router.get("/", async (req, res) => {
   const start = Date.now();
 
-  // สถานะ API เดิม
   let dbStatus = "ok";
   let newsStatus = "error";
   let sosStatus = "error";
   let checkNumberStatus = "error";
   let reportNumberStatus = "error";
-
-  // สถานะ API ใหม่ (Rewards System)
   let itemsStatus = "error";
   let luckySpinWinnersStatus = "error";
   let usersStatus = "error";
 
-  // กำหนด Base URL สำหรับเรียกหาตัวเอง (Loopback)
-  const port = process.env.PORT || 4000;
-  const baseUrl = `http://127.0.0.1:${port}`;
+  // ✅ แก้ไข: ดึง Base URL จาก Request จริงบน Plesk (รองรับ Proxy/HTTPS)
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+  const host = req.headers.host;
+  const baseUrl = `${protocol}://${host}`; 
 
-  // 1. ตรวจสอบสถานะ Database
+  // 1. ตรวจสอบสถานะ Database (MySQL / PostgreSQL ใช้คำสั่งเดียวกันได้)
   try {
     await pool.query("SELECT 1");
   } catch (error) {
-    dbStatus = "error";
+    dbStatus = `error (${error.message})`;
   }
 
   // 2. ตรวจสอบสถานะ API /news
@@ -35,7 +33,7 @@ router.get("/", async (req, res) => {
     });
     newsStatus = newsRes.ok ? "ok" : `error (status: ${newsRes.status})`;
   } catch (error) {
-    newsStatus = "down or timeout";
+    newsStatus = `down or timeout (${error.message})`;
   }
 
   // 3. ตรวจสอบสถานะ SOS Webhook
@@ -46,7 +44,7 @@ router.get("/", async (req, res) => {
     });
     sosStatus = sosRes.status !== 404 ? "ok" : "not found";
   } catch (error) {
-    sosStatus = "down or timeout";
+    sosStatus = `down or timeout (${error.message})`;
   }
 
   // 4. ตรวจสอบสถานะ API เช็คเบอร์มิจฉาชีพ
@@ -56,7 +54,7 @@ router.get("/", async (req, res) => {
     });
     checkNumberStatus = checkRes.ok ? "ok" : `error (status: ${checkRes.status})`;
   } catch (error) {
-    checkNumberStatus = "down or timeout";
+    checkNumberStatus = `down or timeout (${error.message})`;
   }
 
   // 5. ตรวจสอบสถานะ API แจ้งเบอร์มิจฉาชีพ
@@ -75,12 +73,8 @@ router.get("/", async (req, res) => {
       reportNumberStatus = `error (status: ${reportRes.status})`;
     }
   } catch (error) {
-    reportNumberStatus = "down or timeout";
+    reportNumberStatus = `down or timeout (${error.message})`;
   }
-
-  // ==========================================
-  // ส่วนตรวจสอบ API ใหม่ (Rewards System)
-  // ==========================================
 
   // 6. ตรวจสอบสถานะ API ของรางวัล (/api/items)
   try {
@@ -89,7 +83,7 @@ router.get("/", async (req, res) => {
     });
     itemsStatus = itemsRes.ok ? "ok" : `error (status: ${itemsRes.status})`;
   } catch (error) {
-    itemsStatus = "down or timeout";
+    itemsStatus = `down or timeout (${error.message})`;
   }
 
   // 7. ตรวจสอบสถานะ API ผู้โชคดี (/api/lucky-spin/winners)
@@ -99,12 +93,11 @@ router.get("/", async (req, res) => {
     });
     luckySpinWinnersStatus = winnersRes.ok ? "ok" : `error (status: ${winnersRes.status})`;
   } catch (error) {
-    luckySpinWinnersStatus = "down or timeout";
+    luckySpinWinnersStatus = `down or timeout (${error.message})`;
   }
 
   // 8. ตรวจสอบสถานะ API ข้อมูลผู้ใช้ (/api/users/:id)
   try {
-    // ลองส่ง ID 0 ไปเช็ค ถ้าตอบ 404 (User not found) แปลว่า API เชื่อม DB และทำงานได้ปกติ
     const usersRes = await fetch(`${baseUrl}/api/users/0`, { 
       signal: AbortSignal.timeout(3000) 
     });
@@ -114,12 +107,11 @@ router.get("/", async (req, res) => {
       usersStatus = `error (status: ${usersRes.status})`;
     }
   } catch (error) {
-    usersStatus = "down or timeout";
+    usersStatus = `down or timeout (${error.message})`;
   }
 
   const responseTime = Date.now() - start;
   
-  // เช็คว่าบริการทุกตัวต้องทำงานปกติ สถานะโดยรวมจึงจะเป็น ok
   const isSystemOk = dbStatus === "ok" && 
                      newsStatus === "ok" && 
                      sosStatus === "ok" && 
@@ -132,6 +124,11 @@ router.get("/", async (req, res) => {
   res.json({
     status: isSystemOk ? "ok" : "degraded",
     timestamp: new Date().toISOString(),
+    
+    // พิมพ์ baseUrl ออกมาดูด้วยว่ามันดึงถูกไหม (เพื่อการ Debug)
+    _debug: {
+      baseUrl: baseUrl
+    },
 
     services: {
       api: "ok",
