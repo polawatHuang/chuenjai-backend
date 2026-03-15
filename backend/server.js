@@ -38,7 +38,7 @@ app.use("/api/health", healthRoutes);
 app.get('/api/users/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+    const result = await db.query('SELECT * FROM users WHERE id = $1', [id]);
     
     if (result.rows.length === 0) {
       return res.status(404).json({ message: 'User not found' });
@@ -55,7 +55,7 @@ app.put('/api/users/:id/points', async (req, res) => {
     const { id } = req.params;
     const { point_change } = req.body; // ใส่ค่าบวกเพื่อเพิ่ม ค่าลบเพื่อลด
 
-    const result = await pool.query(
+    const result = await db.query(
       'UPDATE users SET point = point + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
       [point_change, id]
     );
@@ -76,7 +76,7 @@ app.post('/api/lucky-spin/log', async (req, res) => {
   try {
     const { item_name, winner_name, winner_phone, winner_address } = req.body;
     
-    const result = await pool.query(
+    const result = await db.query(
       `INSERT INTO lucky_spin_log (item_name, winner_name, winner_phone, winner_address) 
        VALUES ($1, $2, $3, $4) RETURNING *`,
       [item_name, winner_name, winner_phone, winner_address]
@@ -92,7 +92,7 @@ app.post('/api/lucky-spin/log', async (req, res) => {
 app.get('/api/lucky-spin/winners', async (req, res) => {
   try {
     // ดึง 10 คนล่าสุด
-    const result = await pool.query(
+    const result = await db.query(
       'SELECT item_name, winner_name FROM lucky_spin_log ORDER BY created_at DESC LIMIT 10'
     );
     res.json(result.rows);
@@ -108,7 +108,7 @@ app.get('/api/lucky-spin/winners', async (req, res) => {
 // ดึงรายการของรางวัลทั้งหมดไปแสดงในหน้า Rewards
 app.get('/api/items', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM items ORDER BY point ASC');
+    const result = await db.query('SELECT * FROM items ORDER BY point ASC');
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -117,7 +117,7 @@ app.get('/api/items', async (req, res) => {
 
 // ระบบแลกของรางวัล (ใช้ Transaction เพื่อป้องกันข้อผิดพลาด)
 app.post('/api/redeem', async (req, res) => {
-  const client = await pool.connect();
+  const client = await db.connect();
   try {
     const { user_id, item_id } = req.body;
     await client.query('BEGIN'); // เริ่ม Transaction
