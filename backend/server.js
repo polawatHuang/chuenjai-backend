@@ -4,6 +4,7 @@ const express = require("express");
 const cors = require("cors");
 const db = require("./db");
 const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken'); // ไลบรารีสำหรับสร้างและตรวจสอบ Token
 
 // Import Routes
 const newsRoutes = require("./routes/news");
@@ -17,6 +18,28 @@ require("./cron");
 
 const app = express();
 app.use(cors());
+
+// ==========================================
+// 🛡️ Middleware: ตรวจสอบ Bearer Token
+// ==========================================
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // ดึงเอาเฉพาะค่า token (รูปแบบ: Bearer <token>)
+
+  if (token == null) {
+    return res.status(401).json({ error: 'ไม่พบ Token ยืนยันตัวตน (Unauthorized)' });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Token ไม่ถูกต้องหรือหมดอายุ (Forbidden)' });
+    }
+    
+    // แนบข้อมูล user ที่แกะรหัสได้เข้ากับ request เพื่อให้ API นำไปใช้ต่อได้
+    req.user = user; 
+    next();
+  });
+};
 
 // ==========================================
 // 🚨 วาง LINE Webhook ไว้ตรงนี้ (ก่อน express.json)
@@ -36,7 +59,7 @@ app.use("/api/news", newsRoutes);
 app.use("/api/health", healthRoutes);
 
 // ==========================================
-// 🔐 AUTHENTICATION API
+// 🔐 AUTHENTICATION API (ไม่ต้องใช้ Token)
 // ==========================================
 
 // 1. สมัครสมาชิก (Register)
@@ -62,7 +85,10 @@ app.post('/api/register', async (req, res) => {
     // ดึงข้อมูลส่งกลับไปให้ Frontend (ไม่ส่งรหัสผ่านกลับไป)
     const [newUser] = await db.query('SELECT id, name, phone, point, address FROM users WHERE id = ?', [result.insertId]);
 
-    res.status(201).json({ message: 'สมัครสมาชิกสำเร็จ', user: newUser[0] });
+    // สร้าง Token ให้อัตโนมัติ (อายุ 30 วัน)
+    const token = jwt.sign({ id: newUser[0].id, phone: newUser[0].phone }, process.env.JWT_SECRET, { expiresIn: '30d' });
+
+    res.status(201).json({ message: 'สมัครสมาชิกสำเร็จ', user: newUser[0], token });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -88,7 +114,11 @@ app.post('/api/login', async (req, res) => {
 
     // ลบรหัสผ่านออกจาก object ก่อนส่งกลับให้ Frontend
     delete user.password;
-    res.json({ message: 'เข้าสู่ระบบสำเร็จ', user });
+
+    // สร้าง Token
+    const token = jwt.sign({ id: user.id, phone: user.phone }, process.env.JWT_SECRET, { expiresIn: '30d' });
+
+    res.json({ message: 'เข้าสู่ระบบสำเร็จ', user, token });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -118,15 +148,20 @@ app.post('/api/forget-password', async (req, res) => {
 });
 
 // ==========================================
-// 1. USERS API (จัดการผู้ใช้งานและคะแนน)
+// 1. USERS API (จัดการผู้ใช้งานและคะแนน) 🔒 Protected
 // ==========================================
 
 // ดูข้อมูล User และคะแนน (ดึงตาม ID)
-app.get('/api/users/:id', async (req, res) => {
+app.get('/api/users/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    // 🌟 เปลี่ยน $1 เป็น ? และใส่ [results]
-    const [results] = await db.query('SELECT * FROM users WHERE id = ?', [id]);
+    
+    // ป้องกันไม่ให้ดึงข้อมูลคนอื่น (อนุญาตให้ดึงเฉพาะของตัวเอง)
+    if (req.user.id.toString() !== id) {
+       return res.status(403).json({ error: 'ไม่มีสิทธิ์เข้าถึงข้อมูลผู้อื่น' });
+    }
+
+    const [results] = await db.query('SELECT id, name, phone, point, address FROM users WHERE id = ?', [id]);
     
     if (results.length === 0) {
       return res.status(404).json({ message: 'User not found' });
@@ -138,18 +173,22 @@ app.get('/api/users/:id', async (req, res) => {
 });
 
 // เพิ่ม/ลด คะแนน (เช่น ได้จากการทำ Daily Mission หรือหมุนวงล้อได้คะแนน)
-app.put('/api/users/:id/points', async (req, res) => {
+app.put('/api/users/:id/points', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { point_change } = req.body; // ใส่ค่าบวกเพื่อเพิ่ม ค่าลบเพื่อลด
+    const { point_change } = req.body;
 
-    // 🌟 MySQL ไม่มี RETURNING * จึงต้องสั่ง UPDATE ก่อน แล้วค่อย SELECT กลับมาดู
+    // ป้องกันไม่ให้แก้คะแนนคนอื่น
+    if (req.user.id.toString() !== id) {
+       return res.status(403).json({ error: 'ไม่มีสิทธิ์แก้ไขข้อมูลผู้อื่น' });
+    }
+
     await db.query(
       'UPDATE users SET point = point + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       [point_change, id]
     );
 
-    const [updatedUser] = await db.query('SELECT * FROM users WHERE id = ?', [id]);
+    const [updatedUser] = await db.query('SELECT id, name, phone, point, address FROM users WHERE id = ?', [id]);
 
     if (updatedUser.length === 0) return res.status(404).json({ message: 'User not found' });
     res.json({ message: 'Points updated', user: updatedUser[0] });
@@ -162,12 +201,11 @@ app.put('/api/users/:id/points', async (req, res) => {
 // 2. LUCKY SPIN LOG API (วงล้อนำโชค)
 // ==========================================
 
-// บันทึกผู้โชคดีจากการหมุนวงล้อ
-app.post('/api/lucky-spin/log', async (req, res) => {
+// บันทึกผู้โชคดีจากการหมุนวงล้อ 🔒 Protected
+app.post('/api/lucky-spin/log', authenticateToken, async (req, res) => {
   try {
     const { item_name, winner_name, winner_phone, winner_address } = req.body;
     
-    // 🌟 เปลี่ยน $1, $2.. เป็น ?, ?.. และเอา RETURNING * ออก
     const [result] = await db.query(
       `INSERT INTO lucky_spin_log (item_name, winner_name, winner_phone, winner_address) 
        VALUES (?, ?, ?, ?)`,
@@ -176,14 +214,14 @@ app.post('/api/lucky-spin/log', async (req, res) => {
     
     res.status(201).json({ 
       message: 'Log saved successfully', 
-      insertId: result.insertId // คืนค่า ID ที่เพิ่ง insert ลงไป
+      insertId: result.insertId 
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ดึงรายชื่อผู้โชคดีล่าสุด (เอาไปแสดงในป้ายประกาศผล)
+// ดึงรายชื่อผู้โชคดีล่าสุด (เอาไปแสดงในป้ายประกาศผล) 🌍 Public
 app.get('/api/lucky-spin/winners', async (req, res) => {
   try {
     const [results] = await db.query(
@@ -199,7 +237,7 @@ app.get('/api/lucky-spin/winners', async (req, res) => {
 // 3. ITEMS & REDEEM API (ของรางวัลและการแลก)
 // ==========================================
 
-// ดึงรายการของรางวัลทั้งหมดไปแสดงในหน้า Rewards
+// ดึงรายการของรางวัลทั้งหมด 🌍 Public
 app.get('/api/items', async (req, res) => {
   try {
     const [results] = await db.query('SELECT * FROM items ORDER BY point ASC');
@@ -209,9 +247,8 @@ app.get('/api/items', async (req, res) => {
   }
 });
 
-// ระบบแลกของรางวัล (ใช้ Transaction เพื่อป้องกันข้อผิดพลาด)
-app.post('/api/redeem', async (req, res) => {
-  // 🌟 สำหรับ MySQL (mysql2/promise) จะใช้ getConnection() 
+// ระบบแลกของรางวัล 🔒 Protected
+app.post('/api/redeem', authenticateToken, async (req, res) => {
   let connection;
   try {
     connection = await db.getConnection();
@@ -219,8 +256,13 @@ app.post('/api/redeem', async (req, res) => {
 
     const { user_id, item_id } = req.body;
 
+    // เช็คสิทธิ์ว่าเป็นตัวเองจริงๆ ที่แลก
+    if (req.user.id.toString() !== user_id.toString()) {
+       throw new Error('ไม่มีสิทธิ์ทำรายการแทนผู้อื่น');
+    }
+
     // 1. ดึงข้อมูล User และ Item
-    const [userRes] = await connection.query('SELECT point FROM users WHERE id = ?', [user_id]);
+    const [userRes] = await connection.query('SELECT point FROM users WHERE id = ? FOR UPDATE', [user_id]); // FOR UPDATE ล็อคแถวนี้กันคนกดรัวๆ
     const [itemRes] = await connection.query('SELECT name, point FROM items WHERE id = ?', [item_id]);
 
     if (userRes.length === 0 || itemRes.length === 0) {
@@ -242,22 +284,28 @@ app.post('/api/redeem', async (req, res) => {
       [requiredPoints, user_id]
     );
 
+    // *อาจจะเพิ่มคำสั่งบันทึกลงตารางประวัติการแลกของ (redeem_history) ตรงนี้ในอนาคต*
+
     await connection.commit(); // ยืนยัน Transaction
     res.json({ message: `Successfully redeemed: ${itemName}`, deducted_points: requiredPoints });
   } catch (err) {
     if (connection) await connection.rollback(); // ถ้ายกเลิกหรือ Error ให้ย้อนกลับข้อมูล
     res.status(400).json({ error: err.message });
   } finally {
-    if (connection) connection.release(); // สำคัญมาก! ต้องคืน connection กลับสู่ pool เสมอ
+    if (connection) connection.release(); // คืน connection กลับสู่ pool เสมอ
   }
 });
 
-// Manual trigger for testing
+// Manual trigger for testing 🌍 Public
 app.get("/api/news-refresh", async (req, res) => {
   console.log("Manual refresh triggered...");
   const result = await refreshNews();
   res.json(result);
 });
+
+// ==========================================
+// 4. SCAM CHECKER API 🌍 Public
+// ==========================================
 
 // API เช็คเบอร์มิจฉาชีพ
 app.get('/api/check-number/:phone', async (req, res) => {
@@ -267,8 +315,6 @@ app.get('/api/check-number/:phone', async (req, res) => {
   const sql = `SELECT report_type, COUNT(*) as count FROM phone_reports WHERE phone_number = ? GROUP BY report_type`;
   
   try {
-    // 🌟 แก้ตรงนี้: ใช้ await db.query() ได้เลย โค้ดจะสั้นและคลีนมาก
-    // สังเกตว่าต้องใส่ [results] ครอบไว้ เพราะ mysql2/promise จะ return เป็น array [rows, fields]
     const [results] = await db.query(sql, [phone]);
 
     if (results.length > 0) {
@@ -294,9 +340,7 @@ app.post('/api/report-number', async (req, res) => {
   const sql = `INSERT INTO phone_reports (phone_number, report_type) VALUES (?, ?)`;
   
   try {
-    // 🌟 แก้ตรงนี้เหมือนกัน: ไม่ต้องใช้ Callback หรือ new Promise แล้ว
     await db.query(sql, [cleanPhone, report_type]);
-    
     res.status(201).json({ success: true, message: "ขอบคุณสำหรับการรายงาน! ข้อมูลของคุณจะช่วยให้ผู้อื่นปลอดภัยมากขึ้น" });
   } catch (err) {
     console.error("Database Error:", err);
