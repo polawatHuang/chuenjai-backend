@@ -98,17 +98,18 @@ router.get("/", async (req, res) => {
 
   // 8. ตรวจสอบสถานะ API ข้อมูลผู้ใช้ (/api/users/:id)
   try {
-    const usersRes = await fetch(`${baseUrl}/api/users/0`, { 
-      signal: AbortSignal.timeout(3000) 
-    });
-    if (usersRes.status === 404 || usersRes.ok) {
-      usersStatus = "ok";
-    } else {
-      usersStatus = `error (status: ${usersRes.status})`;
-    }
-  } catch (error) {
-    usersStatus = `down or timeout (${error.message})`;
+  const usersRes = await fetch(`${baseUrl}/api/users/0`, { 
+    signal: AbortSignal.timeout(3000) 
+  });
+  // ✅ แก้ไข: ถ้าติด 401 หรือ 404 หรือ 200 ให้ถือว่า API Service "ยังไม่ตาย"
+  if (usersRes.status === 401 || usersRes.status === 404 || usersRes.ok) {
+    usersStatus = "ok";
+  } else {
+    usersStatus = `error (status: ${usersRes.status})`;
   }
+} catch (error) {
+  usersStatus = `down or timeout (${error.message})`;
+}
 
   const responseTime = Date.now() - start;
   
