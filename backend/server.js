@@ -129,7 +129,7 @@ app.get('/api/items', async (req, res) => {
 });
 
 // ระบบแลกของรางวัล (Transaction-Safe)
-app.post('/api/redeem', authenticateToken, async (req, res) => {
+app.post('/api/redeem', async (req, res) => {
     let connection;
     try {
         connection = await db.getConnection();
