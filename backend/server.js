@@ -76,7 +76,7 @@ app.get("/", (req, res) => {
 app.use("/api/orders", ordersRoutes);
 app.use("/api/users", authenticateToken, usersRoutes); // ✅ CRUD users
 app.use("/api/news", newsRoutes);
-app.use("/api/health", authenticateToken, healthRoutes);
+app.use("/api/health", healthRoutes);
 
 // =============================
 // AUTH
