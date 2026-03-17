@@ -128,47 +128,76 @@ app.get('/api/items', async (req, res) => {
   }
 });
 
-// ระบบแลกของรางวัล (ใช้ Transaction เพื่อป้องกันข้อผิดพลาด)
-app.post('/api/redeem', async (req, res) => {
-  // 🌟 สำหรับ MySQL (mysql2/promise) จะใช้ getConnection() 
-  let connection;
-  try {
-    connection = await db.getConnection();
-    await connection.beginTransaction(); // เริ่ม Transaction
+// ระบบแลกของรางวัล (Transaction-Safe)
+app.post('/api/redeem', authenticateToken, async (req, res) => {
+    let connection;
+    try {
+        connection = await db.getConnection();
+        await connection.beginTransaction(); // เริ่ม Transaction
 
-    const { user_id, item_id } = req.body;
+        const { user_id, item_id } = req.body;
 
-    // 1. ดึงข้อมูล User และ Item
-    const [userRes] = await connection.query('SELECT point FROM users WHERE id = ?', [user_id]);
-    const [itemRes] = await connection.query('SELECT name, point FROM items WHERE id = ?', [item_id]);
+        // 🛡️ Security Check: ป้องกันคนแอบอ้าง ID คนอื่นมาแลก
+        if (req.user.id.toString() !== user_id.toString()) {
+            throw new Error("Unauthorized: สิทธิ์ไม่ถูกต้อง");
+        }
 
-    if (userRes.length === 0 || itemRes.length === 0) {
-      throw new Error('User or Item not found');
+        // 🔍 1. ดึงข้อมูล User และ Item (ใช้ FOR UPDATE เพื่อล็อคป้องกัน Race Condition)
+        // [[user]] แบบนี้คือเอาเฉพาะ Object แถวแรกมาเลย
+        const [[user]] = await connection.query(
+            "SELECT name, phone, address, point FROM users WHERE id=? FOR UPDATE", 
+            [user_id]
+        );
+        const [[item]] = await connection.query(
+            "SELECT name, point, img_url FROM items WHERE id=?", 
+            [item_id]
+        );
+
+        // 🚫 2. ตรวจสอบว่าข้อมูลมีอยู่จริง
+        if (!user) throw new Error("ไม่พบข้อมูลผู้ใช้งาน");
+        if (!item) throw new Error("ไม่พบของรางวัลที่เลือก");
+
+        // 💰 3. ตรวจสอบคะแนน (ใช้ค่าจาก Object ได้โดยตรง ไม่ต้องมี [0])
+        if (user.point < item.point) {
+            throw new Error(`คะแนนไม่เพียงพอ (คุณมี ${user.point} แต่ของรางวัลราคา ${item.point})`);
+        }
+
+        // 📉 4. หักคะแนน User
+        await connection.query(
+            'UPDATE users SET point = point - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [item.point, user_id]
+        );
+
+        // 📝 5. บันทึกลงตาราง orders
+        await connection.query(
+            `INSERT INTO orders (buyer_name, buyer_phone, buyer_address, item_name, item_url, item_point) 
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [
+                user.name, 
+                user.phone, 
+                user.address || "", 
+                item.name, 
+                item.img_url || "", 
+                item.point
+            ]
+        );
+
+        await connection.commit(); // ✅ ยืนยัน Transaction ทั้งหมด
+        
+        res.json({ 
+            success: true,
+            message: `แลกรับ ${item.name} สำเร็จ!`, 
+            deducted_points: item.point,
+            remaining_points: user.point - item.point 
+        });
+
+    } catch (err) {
+        if (connection) await connection.rollback(); // ❌ ยกเลิกทั้งหมดหากมี Error
+        console.error("Redeem Error:", err.message);
+        res.status(400).json({ error: err.message });
+    } finally {
+        if (connection) connection.release(); // 🚪 คืน Connection กลับสู่ Pool
     }
-
-    const userPoints = userRes[0].point;
-    const requiredPoints = itemRes[0].point;
-    const itemName = itemRes[0].name;
-
-    // 2. เช็คว่าคะแนนพอไหม
-    if (userPoints < requiredPoints) {
-      throw new Error('Not enough points');
-    }
-
-    // 3. หักคะแนน User
-    await connection.query(
-      'UPDATE users SET point = point - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [requiredPoints, user_id]
-    );
-
-    await connection.commit(); // ยืนยัน Transaction
-    res.json({ message: `Successfully redeemed: ${itemName}`, deducted_points: requiredPoints });
-  } catch (err) {
-    if (connection) await connection.rollback(); // ถ้ายกเลิกหรือ Error ให้ย้อนกลับข้อมูล
-    res.status(400).json({ error: err.message });
-  } finally {
-    if (connection) connection.release(); // สำคัญมาก! ต้องคืน connection กลับสู่ pool เสมอ
-  }
 });
 
 // Manual trigger for testing
