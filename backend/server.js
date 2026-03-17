@@ -16,103 +16,102 @@ const healthRoutes = require("./routes/health");
 const refreshNews = require("./routes/refreshNews");
 const sosRoutes = require("./sos-messaging-system");
 const ordersRoutes = require("./routes/orders");
+const usersRoutes = require("./routes/users");
+const authenticateToken = require("./middleware/auth");
 
 require("./cron");
 
 const app = express();
 
 // =============================
-// Environment validation
+// ENV CHECK
 // =============================
 if (!process.env.JWT_SECRET) {
-  console.error("❌ JWT_SECRET missing in .env");
+  console.error("❌ JWT_SECRET missing");
   process.exit(1);
 }
 
 // =============================
-// Security middleware
+// SECURITY
 // =============================
 app.use(helmet());
 
-const limiter = rateLimit({
+const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200
+  max: 300
 });
 
-app.use(limiter);
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20 // ป้องกัน brute force login
+});
+
 app.use(cors());
+app.use("/api/", apiLimiter);
 
 // =============================
-// Webhook (must be before json)
+// WEBHOOK (ต้องมาก่อน json)
 // =============================
 app.use("/webhook", sosRoutes);
 
 // =============================
-// JSON parser
+// BODY PARSER
 // =============================
 app.use(express.json());
 
 // =============================
-// JWT Authentication Middleware
+// HEALTH CHECK
 // =============================
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Unauthorized: Token required" });
-  }
-
-  const token = authHeader.split(" ")[1];
-
-  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: "Invalid or expired token" });
-    }
-
-    req.user = user;
-    next();
+app.get("/", (req, res) => {
+  res.json({
+    status: "OK",
+    service: "Hangan News API",
+    time: new Date()
   });
-};
+});
 
 // =============================
-// API Routes
+// ROUTES
 // =============================
 app.use("/api/orders", ordersRoutes);
+app.use("/api/users", authenticateToken, usersRoutes); // ✅ CRUD users
 app.use("/api/news", newsRoutes);
 app.use("/api/health", authenticateToken, healthRoutes);
 
 // =============================
-// AUTH APIs
+// AUTH
 // =============================
 
-// Register
-app.post("/api/register", async (req, res) => {
+// REGISTER
+app.post("/api/register", authLimiter, async (req, res) => {
   try {
-    const { phone, password, name, address } = req.body;
+    let { phone, password, name, address } = req.body;
 
     if (!phone || !password || !name) {
-      return res.status(400).json({ error: "Missing required fields" });
+      return res.status(400).json({ error: "Missing fields" });
     }
 
+    phone = phone.replace(/\D/g, "");
+
     const [existing] = await db.query(
-      "SELECT id FROM users WHERE phone = ?",
+      "SELECT id FROM users WHERE phone=?",
       [phone]
     );
 
-    if (existing.length > 0) {
-      return res.status(400).json({ error: "Phone already registered" });
+    if (existing.length) {
+      return res.status(400).json({ error: "Phone exists" });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const [result] = await db.query(
-      `INSERT INTO users (name, phone, password, address, point)
-       VALUES (?, ?, ?, ?, 0)`,
+      `INSERT INTO users (name, phone, password, address, point, money)
+       VALUES (?, ?, ?, ?, 0, 0)`,
       [name, phone, hashedPassword, address || ""]
     );
 
     const [user] = await db.query(
-      "SELECT id, name, phone, address, point FROM users WHERE id = ?",
+      "SELECT id,name,phone,address,point,money FROM users WHERE id=?",
       [result.insertId]
     );
 
@@ -127,22 +126,23 @@ app.post("/api/register", async (req, res) => {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
-// Login
-app.post("/api/login", async (req, res) => {
+// LOGIN
+app.post("/api/login", authLimiter, async (req, res) => {
   try {
-    const { phone, password } = req.body;
+    let { phone, password } = req.body;
 
     if (!phone || !password) {
-      return res.status(400).json({ error: "Phone and password required" });
+      return res.status(400).json({ error: "Missing credentials" });
     }
 
+    phone = phone.replace(/\D/g, "");
+
     const [users] = await db.query(
-      `SELECT id, name, phone, password, address, point
-       FROM users WHERE phone = ?`,
+      `SELECT * FROM users WHERE phone=?`,
       [phone]
     );
 
@@ -155,7 +155,7 @@ app.post("/api/login", async (req, res) => {
     const match = await bcrypt.compare(password, user.password);
 
     if (!match) {
-      return res.status(401).json({ error: "Invalid password" });
+      return res.status(401).json({ error: "Wrong password" });
     }
 
     delete user.password;
@@ -171,21 +171,23 @@ app.post("/api/login", async (req, res) => {
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
-// Forget password
-app.post("/api/forget-password", async (req, res) => {
+// FORGET PASSWORD
+app.post("/api/forget-password", authLimiter, async (req, res) => {
   try {
-    const { phone, new_password } = req.body;
+    let { phone, new_password } = req.body;
 
     if (!phone || !new_password) {
-      return res.status(400).json({ error: "Missing required fields" });
+      return res.status(400).json({ error: "Missing fields" });
     }
 
+    phone = phone.replace(/\D/g, "");
+
     const [users] = await db.query(
-      "SELECT id FROM users WHERE phone = ?",
+      "SELECT id FROM users WHERE phone=?",
       [phone]
     );
 
@@ -200,130 +202,16 @@ app.post("/api/forget-password", async (req, res) => {
       [hashedPassword, phone]
     );
 
-    res.json({ message: "Password updated successfully" });
+    res.json({ message: "Password updated" });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
 // =============================
-// USERS API
+// REDEEM (TRANSACTION SAFE)
 // =============================
-
-app.get("/api/users/:id", authenticateToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (req.user.id.toString() !== id.toString()) {
-      return res.status(403).json({ error: "Access denied" });
-    }
-
-    const [results] = await db.query(
-      "SELECT id,name,phone,point,address FROM users WHERE id=?",
-      [id]
-    );
-
-    if (!results.length) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    res.json(results[0]);
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.put("/api/users/:id/points", authenticateToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { point_change } = req.body;
-
-    if (req.user.id.toString() !== id.toString()) {
-      return res.status(403).json({ error: "Access denied" });
-    }
-
-    await db.query(
-      `UPDATE users 
-       SET point = point + ?, updated_at=CURRENT_TIMESTAMP 
-       WHERE id=?`,
-      [point_change, id]
-    );
-
-    const [updatedUser] = await db.query(
-      "SELECT id,name,phone,point,address FROM users WHERE id=?",
-      [id]
-    );
-
-    res.json({
-      message: "Points updated",
-      user: updatedUser[0]
-    });
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// =============================
-// Lucky Spin
-// =============================
-
-app.post("/api/lucky-spin/log", authenticateToken, async (req, res) => {
-  try {
-    const { item_name, winner_name, winner_phone, winner_address } = req.body;
-
-    const [result] = await db.query(
-      `INSERT INTO lucky_spin_log
-       (item_name,winner_name,winner_phone,winner_address)
-       VALUES (?,?,?,?)`,
-      [item_name, winner_name, winner_phone, winner_address]
-    );
-
-    res.status(201).json({
-      message: "Log saved",
-      insertId: result.insertId
-    });
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get("/api/lucky-spin/winners", async (req, res) => {
-  try {
-    const [results] = await db.query(
-      `SELECT item_name,winner_name
-       FROM lucky_spin_log
-       ORDER BY created_at DESC
-       LIMIT 10`
-    );
-
-    res.json(results);
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// =============================
-// Items / Redeem
-// =============================
-
-app.get("/api/items", async (req, res) => {
-  try {
-    const [results] = await db.query(
-      "SELECT * FROM items ORDER BY point ASC"
-    );
-
-    res.json(results);
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 app.post("/api/redeem", authenticateToken, async (req, res) => {
 
   let connection;
@@ -335,43 +223,36 @@ app.post("/api/redeem", authenticateToken, async (req, res) => {
 
     const { user_id, item_id } = req.body;
 
-    if (req.user.id.toString() !== user_id.toString()) {
-      throw new Error("Unauthorized action");
+    if (req.user.id !== user_id) {
+      throw new Error("Unauthorized");
     }
 
-    const [userRes] = await connection.query(
+    const [[user]] = await connection.query(
       "SELECT point FROM users WHERE id=? FOR UPDATE",
       [user_id]
     );
 
-    const [itemRes] = await connection.query(
+    const [[item]] = await connection.query(
       "SELECT name,point FROM items WHERE id=?",
       [item_id]
     );
 
-    if (!userRes.length || !itemRes.length) {
-      throw new Error("User or Item not found");
-    }
+    if (!user || !item) throw new Error("Not found");
 
-    const userPoints = userRes[0].point;
-    const requiredPoints = itemRes[0].point;
-
-    if (userPoints < requiredPoints) {
+    if (user.point < item.point) {
       throw new Error("Not enough points");
     }
 
     await connection.query(
-      `UPDATE users 
-       SET point = point - ?, updated_at=CURRENT_TIMESTAMP
-       WHERE id=?`,
-      [requiredPoints, user_id]
+      "UPDATE users SET point=point-? WHERE id=?",
+      [item.point, user_id]
     );
 
     await connection.commit();
 
     res.json({
-      message: `Redeemed ${itemRes[0].name}`,
-      deducted_points: requiredPoints
+      message: `Redeemed ${item.name}`,
+      used_points: item.point
     });
 
   } catch (err) {
@@ -388,103 +269,31 @@ app.post("/api/redeem", authenticateToken, async (req, res) => {
 
 });
 
-// =============================
-// Scam Checker
-// =============================
-
-app.get("/api/check-number/:phone", async (req, res) => {
-
-  try {
-
-    const phone = req.params.phone.replace(/\D/g, "");
-
-    const [results] = await db.query(
-      `SELECT report_type, COUNT(*) as count
-       FROM phone_reports
-       WHERE phone_number=?
-       GROUP BY report_type`,
-      [phone]
-    );
-
-    if (results.length > 0) {
-      res.json({
-        safe: false,
-        data: results,
-        message: `Warning: number ${phone} reported`
-      });
-    } else {
-      res.json({
-        safe: true,
-        data: null,
-        message: "No reports found"
-      });
-    }
-
-  } catch (err) {
-
-    res.status(500).json({
-      error: "Internal server error"
-    });
-
-  }
-
-});
-
-app.post("/api/report-number", async (req, res) => {
-
-  try {
-
-    const { phone, report_type } = req.body;
-
-    if (!phone || !report_type) {
-      return res.status(400).json({
-        error: "Phone and report type required"
-      });
-    }
-
-    const cleanPhone = phone.replace(/\D/g, "");
-
-    await db.query(
-      "INSERT INTO phone_reports (phone_number,report_type) VALUES (?,?)",
-      [cleanPhone, report_type]
-    );
-
-    res.status(201).json({
-      success: true,
-      message: "Report submitted"
-    });
-
-  } catch (err) {
-
-    res.status(500).json({
-      error: "Internal server error"
-    });
-
-  }
-
+app.use((req, res, next) => {
+  res.setTimeout(10000, () => {
+    res.status(503).json({ error: "Request timeout" });
+  });
+  next();
 });
 
 // =============================
-// Manual News Refresh
+// NEWS REFRESH
 // =============================
-
 app.get("/api/news-refresh", async (req, res) => {
   const result = await refreshNews();
   res.json(result);
 });
 
 // =============================
-// Cron Job
+// CRON
 // =============================
-
 cron.schedule("0 7 * * *", async () => {
   await refreshNews();
 });
 
 // =============================
-// Start Server
+// START
 // =============================
-
 const port = process.env.PORT || 4000;
 
 app.listen(port, () => {
