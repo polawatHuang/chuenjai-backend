@@ -213,60 +213,74 @@ app.post("/api/forget-password", authLimiter, async (req, res) => {
 // REDEEM (TRANSACTION SAFE)
 // =============================
 app.post("/api/redeem", authenticateToken, async (req, res) => {
-
   let connection;
 
   try {
-
     connection = await db.getConnection();
-    await connection.beginTransaction();
+    await connection.beginTransaction(); // 1. เริ่ม Transaction
 
     const { user_id, item_id } = req.body;
 
-    if (req.user.id !== user_id) {
+    // ตรวจสอบสิทธิ์ (ต้องเป็นเจ้าของ ID จริงๆ)
+    if (req.user.id.toString() !== user_id.toString()) {
       throw new Error("Unauthorized");
     }
 
+    // 2. ดึงข้อมูล User (ดึงชื่อ, เบอร์, ที่อยู่ มาด้วยเพื่อใช้ลงตาราง orders)
     const [[user]] = await connection.query(
-      "SELECT point FROM users WHERE id=? FOR UPDATE",
+      "SELECT name, phone, address, point FROM users WHERE id=? FOR UPDATE",
       [user_id]
     );
 
+    // 3. ดึงข้อมูลของรางวัล (ดึงชื่อ, คะแนน, และ URL รูปภาพ)
     const [[item]] = await connection.query(
-      "SELECT name,point FROM items WHERE id=?",
+      "SELECT name, point, image_url FROM items WHERE id=?",
       [item_id]
     );
 
-    if (!user || !item) throw new Error("Not found");
+    if (!user || !item) throw new Error("ไม่พบข้อมูลผู้ใช้หรือของรางวัล");
 
+    // 4. เช็คว่าคะแนนพอไหม
     if (user.point < item.point) {
-      throw new Error("Not enough points");
+      throw new Error("คะแนนของคุณไม่เพียงพอ");
     }
 
+    // 5. หักคะแนน User
     await connection.query(
-      "UPDATE users SET point=point-? WHERE id=?",
+      "UPDATE users SET point = point - ? WHERE id = ?",
       [item.point, user_id]
     );
 
-    await connection.commit();
+    // 6. 🔥 เพิ่มข้อมูลลงตาราง orders (ตามโครงสร้าง DB ที่คุณส่งมา)
+    await connection.query(
+      `INSERT INTO orders 
+      (buyer_name, buyer_phone, buyer_address, item_name, item_url, item_point) 
+      VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        user.name,           // จากตาราง users
+        user.phone,          // จากตาราง users
+        user.address || "",  // จากตาราง users (ถ้าไม่มีให้เป็นค่าว่าง)
+        item.name,           // จากตาราง items
+        item.image_url || "",// จากตาราง items (ถ้ามี)
+        item.point           // คะแนนที่ใช้แลก
+      ]
+    );
+
+    await connection.commit(); // ✅ ยืนยันการทำงานทั้งหมด
 
     res.json({
-      message: `Redeemed ${item.name}`,
+      success: true,
+      message: `แลกรับ ${item.name} สำเร็จ!`,
       used_points: item.point
     });
 
   } catch (err) {
-
-    if (connection) await connection.rollback();
-
+    if (connection) await connection.rollback(); // ❌ ถ้าพังให้ยกเลิกทั้งหมด (คะแนนไม่ถูกหัก)
+    console.error("Redeem Error:", err.message);
     res.status(400).json({ error: err.message });
-
   } finally {
-
-    if (connection) connection.release();
-
+    if (connection) connection.release(); // คืน Connection
   }
-
 });
 
 app.use((req, res, next) => {
