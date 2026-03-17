@@ -28,7 +28,7 @@ router.get("/", authenticateToken, async (req, res) => {
 // ===============================
 // GET USER (self only)
 // ===============================
-router.get("/:id", authenticateToken, async (req, res) => {
+router.get("/:id", async (req, res) => {
   try {
 
     const { id } = req.params;
@@ -59,7 +59,7 @@ router.get("/:id", authenticateToken, async (req, res) => {
 // ===============================
 // UPDATE USER
 // ===============================
-router.put("/:id", authenticateToken, async (req, res) => {
+router.put("/:id", async (req, res) => {
   try {
 
     const { id } = req.params;
@@ -90,7 +90,7 @@ router.put("/:id", authenticateToken, async (req, res) => {
 // ===============================
 // UPDATE PASSWORD
 // ===============================
-router.put("/:id/password", authenticateToken, async (req, res) => {
+router.put("/:id/password", async (req, res) => {
   try {
 
     const { id } = req.params;
@@ -118,7 +118,7 @@ router.put("/:id/password", authenticateToken, async (req, res) => {
 // ===============================
 // DELETE USER (optional: admin only)
 // ===============================
-router.delete("/:id", authenticateToken, async (req, res) => {
+router.delete("/:id", async (req, res) => {
   try {
 
     const { id } = req.params;
