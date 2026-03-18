@@ -3,6 +3,7 @@ const cron = require("node-cron");
 const express = require("express");
 const cors = require("cors");
 const db = require("./db");
+const { AccessToken, RoomServiceClient } = require('livekit-server-sdk');
 
 // Import Routes
 const newsRoutes = require("./routes/news");
@@ -103,30 +104,44 @@ app.post('/api/lucky-spin/log', async (req, res) => {
 });
 
 // Endpoint สำหรับขอ Token ระบบ LiveKit (ใช้สำหรับเข้าร่วมห้องประชุม)
+// Endpoint สำหรับขอ Token ระบบ LiveKit (ใช้สำหรับเข้าร่วมห้องประชุม)
 app.post('/api/get-token', async (req, res) => {
-  const { roomName, participantName, userId } = req.body;
+  try {
+    const { roomName, participantName, userId } = req.body;
 
-  if (!roomName || !participantName || !userId) {
-    return res.status(400).json({ error: 'Missing required fields' });
+    if (!roomName || !participantName || !userId) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // ดึงค่าจาก .env (ต้องแน่ใจว่าในไฟล์ .env มี 3 ตัวนี้นะครับ)
+    const apiKey = process.env.LIVEKIT_API_KEY;
+    const apiSecret = process.env.LIVEKIT_API_SECRET;
+    const livekitUrl = process.env.LIVEKIT_URL;
+
+    if (!apiKey || !apiSecret || !livekitUrl) {
+      return res.status(500).json({ error: 'LiveKit credentials are not set in .env' });
+    }
+
+    // สร้าง Access Token
+    const at = new AccessToken(apiKey, apiSecret, {
+      identity: userId.toString(), 
+      name: participantName // ใส่ชื่อเข้าไปด้วยเพื่อแสดงในห้อง
+    });
+
+    at.addGrant({
+      roomJoin: true,
+      room: roomName,
+      canPublish: true,   
+      canSubscribe: true, 
+    });
+
+    const token = await at.toJwt();
+
+    res.json({ token, serverUrl: livekitUrl });
+  } catch (error) {
+    console.error("Get Token Error:", error);
+    res.status(500).json({ error: error.message });
   }
-
-  // สร้าง Access Token สำหรับ LiveKit
-  const at = new AccessToken(apiKey, apiSecret, {
-    identity: userId.toString(), // ID ที่ไม่ซ้ำกัน
-  });
-
-  // กำหนดสิทธิ์: อนุญาตให้เข้าห้อง, พูดได้, ฟังได้
-  at.addGrant({
-    roomJoin: true,
-    room: roomName,
-    canPublish: true,   // เปิดไมค์ได้
-    canSubscribe: true, // ฟังคนอื่นได้
-  });
-
-  // สร้าง JWT Token
-  const token = await at.toJwt();
-
-  res.json({ token, serverUrl: process.env.LIVEKIT_URL });
 });
 
 // ดึงรายชื่อผู้โชคดีล่าสุด (เอาไปแสดงในป้ายประกาศผล)
