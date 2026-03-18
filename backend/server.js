@@ -3,6 +3,7 @@ const cron = require("node-cron");
 const express = require("express");
 const cors = require("cors");
 const db = require("./db");
+const bcrypt = require('bcrypt');
 const { AccessToken, RoomServiceClient } = require('livekit-server-sdk');
 
 // Import Routes
@@ -33,6 +34,88 @@ app.use(express.json());
 // ==========================================
 // 🌐 API Routes อื่นๆ
 // ==========================================
+// ==========================================
+// 🔐 AUTHENTICATION API
+// ==========================================
+
+// 1. สมัครสมาชิก (Register)
+app.post('/api/register', async (req, res) => {
+  try {
+    const { phone, password, name, address } = req.body;
+
+    // เช็คว่ามีเบอร์นี้ในระบบแล้วหรือยัง
+    const [existing] = await db.query('SELECT * FROM users WHERE phone = ?', [phone]);
+    if (existing.length > 0) {
+      return res.status(400).json({ error: 'เบอร์โทรศัพท์นี้ถูกใช้งานแล้ว กรุณาเข้าสู่ระบบ' });
+    }
+
+    // เข้ารหัสผ่านก่อนบันทึกลงฐานข้อมูล
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // บันทึก User ใหม่
+    const [result] = await db.query(
+      'INSERT INTO users (name, phone, password, address, point) VALUES (?, ?, ?, ?, 0)',
+      [name, phone, hashedPassword, address || '']
+    );
+
+    // ดึงข้อมูลส่งกลับไปให้ Frontend (ไม่ส่งรหัสผ่านกลับไป)
+    const [newUser] = await db.query('SELECT id, name, phone, point, address FROM users WHERE id = ?', [result.insertId]);
+
+    res.status(201).json({ message: 'สมัครสมาชิกสำเร็จ', user: newUser[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. เข้าสู่ระบบ (Login)
+app.post('/api/login', async (req, res) => {
+  try {
+    const { phone, password } = req.body;
+    
+    const [users] = await db.query('SELECT * FROM users WHERE phone = ?', [phone]);
+    if (users.length === 0) {
+      return res.status(401).json({ error: 'ไม่พบเบอร์โทรศัพท์นี้ในระบบ' });
+    }
+
+    const user = users[0];
+    
+    // ตรวจสอบรหัสผ่านว่าตรงกันไหม
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) {
+      return res.status(401).json({ error: 'รหัสผ่านไม่ถูกต้อง' });
+    }
+
+    // ลบรหัสผ่านออกจาก object ก่อนส่งกลับให้ Frontend
+    delete user.password;
+    res.json({ message: 'เข้าสู่ระบบสำเร็จ', user });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. ลืมรหัสผ่าน (Forget Password)
+app.post('/api/forget-password', async (req, res) => {
+  try {
+    const { phone, new_password } = req.body;
+    
+    // เช็คว่ามีเบอร์นี้อยู่จริงไหม
+    const [users] = await db.query('SELECT * FROM users WHERE phone = ?', [phone]);
+    if (users.length === 0) {
+      return res.status(404).json({ error: 'ไม่พบเบอร์โทรศัพท์นี้ในระบบ' });
+    }
+
+    // เข้ารหัสผ่านใหม่
+    const hashedPassword = await bcrypt.hash(new_password, 10);
+    
+    // อัปเดตรหัสผ่านลงฐานข้อมูล
+    await db.query('UPDATE users SET password = ? WHERE phone = ?', [hashedPassword, phone]);
+
+    res.json({ message: 'เปลี่ยนรหัสผ่านสำเร็จ! กรุณาเข้าสู่ระบบด้วยรหัสผ่านใหม่' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.use("/api/news", newsRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/api/orders", ordersRoutes);
