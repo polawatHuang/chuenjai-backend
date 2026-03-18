@@ -102,6 +102,33 @@ app.post('/api/lucky-spin/log', async (req, res) => {
   }
 });
 
+// Endpoint สำหรับขอ Token ระบบ LiveKit (ใช้สำหรับเข้าร่วมห้องประชุม)
+app.post('/api/get-token', async (req, res) => {
+  const { roomName, participantName, userId } = req.body;
+
+  if (!roomName || !participantName || !userId) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  // สร้าง Access Token สำหรับ LiveKit
+  const at = new AccessToken(apiKey, apiSecret, {
+    identity: userId.toString(), // ID ที่ไม่ซ้ำกัน
+  });
+
+  // กำหนดสิทธิ์: อนุญาตให้เข้าห้อง, พูดได้, ฟังได้
+  at.addGrant({
+    roomJoin: true,
+    room: roomName,
+    canPublish: true,   // เปิดไมค์ได้
+    canSubscribe: true, // ฟังคนอื่นได้
+  });
+
+  // สร้าง JWT Token
+  const token = await at.toJwt();
+
+  res.json({ token, serverUrl: process.env.LIVEKIT_URL });
+});
+
 // ดึงรายชื่อผู้โชคดีล่าสุด (เอาไปแสดงในป้ายประกาศผล)
 app.get('/api/lucky-spin/winners', async (req, res) => {
   try {
