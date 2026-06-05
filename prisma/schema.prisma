@@ -1,0 +1,706 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  SUPERVISOR
+  OFFICER
+  NURSE
+  VIEWER
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum ElderlyStatus {
+  ACTIVE
+  INACTIVE
+  DECEASED
+}
+
+enum DiseaseSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  MISSED
+}
+
+enum CallType {
+  MEDICATION
+  HEALTH_CHECK
+  APPOINTMENT
+  EMERGENCY
+}
+
+enum CallStatus {
+  SUCCESS
+  FAILED
+  NO_ANSWER
+  BUSY
+}
+
+enum AlertType {
+  MEDICATION
+  HEALTH
+  APPOINTMENT
+  EMERGENCY
+  NO_ANSWER
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AlertStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum NotificationChannel {
+  LINE
+  SMS
+  EMAIL
+  VOICE_CALL
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  READ
+}
+
+enum OrganizationType {
+  MUNICIPALITY
+  HOSPITAL
+  PRIVATE_CARE
+  INSURANCE
+}
+
+enum SubscriptionPlan {
+  BASIC
+  PRO
+  ENTERPRISE
+}
+
+enum MedicationLogStatus {
+  TAKEN
+  MISSED
+  SKIPPED
+}
+
+enum MedicationLogSource {
+  LINE
+  VOICE_AI
+  OFFICER
+  MOBILE_APP
+}
+
+enum ReminderChannel {
+  LINE
+  VOICE_CALL
+  SMS
+}
+
+enum ReminderStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum ConversationType {
+  HEALTH_CHECK
+  MEDICATION
+  EMERGENCY
+  SOCIAL
+}
+
+enum ReportJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum IntegrationType {
+  HOSXP
+  JHCIS
+  FHIR
+  LINE
+  SMS
+}
+
+enum IntegrationLogStatus {
+  SUCCESS
+  FAILED
+}
+
+enum CarePlanStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum SpeakerType {
+  AI
+  ELDERLY
+}
+
+// ============================================================
+// CORE MODELS
+// ============================================================
+
+// Table 13: organizations — root tenant entity
+model Organization {
+  id                BigInt            @id @default(autoincrement())
+  code              String?           @unique @db.VarChar(50)
+  organizationName  String            @db.VarChar(255) @map("organization_name")
+  organizationType  OrganizationType? @map("organization_type")
+  taxId             String?           @db.VarChar(30) @map("tax_id")
+  phone             String?           @db.VarChar(50)
+  email             String?           @db.VarChar(255)
+  address           String?           @db.Text
+  province          String?           @db.VarChar(255)
+  district          String?           @db.VarChar(255)
+  logoUrl           String?           @db.Text @map("logo_url")
+  subscriptionPlan  SubscriptionPlan? @map("subscription_plan")
+  subscriptionStart DateTime?         @db.Date @map("subscription_start")
+  subscriptionEnd   DateTime?         @db.Date @map("subscription_end")
+  isActive          Boolean           @default(true) @map("is_active")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  users          User[]
+  elderlies      Elderly[]
+  events         Event[]
+  systemSettings SystemSetting[]
+  carePlans      CarePlan[]
+  reportJobs     ReportJob[]
+  integrations   Integration[]
+
+  @@map("organizations")
+}
+
+// Table 1: users — system staff accounts
+model User {
+  id             BigInt    @id @default(autoincrement())
+  organizationId BigInt    @map("organization_id")
+  username       String    @unique @db.VarChar(100)
+  passwordHash   String    @db.VarChar(255) @map("password_hash")
+  fullName       String    @db.VarChar(255) @map("full_name")
+  email          String?   @db.VarChar(255)
+  phone          String?   @db.VarChar(50)
+  role           Role
+  isActive       Boolean   @default(true) @map("is_active")
+  lastLoginAt    DateTime? @map("last_login_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization    Organization   @relation(fields: [organizationId], references: [id])
+  auditLogs       AuditLog[]
+  assignedAlerts  Alert[]        @relation("AssignedAlerts")
+  resolvedAlerts  Alert[]        @relation("ResolvedAlerts")
+  assignedPlans   CarePlan[]
+  loginSessions   LoginSession[]
+  reportJobs      ReportJob[]
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+// ============================================================
+// ELDERLY & HEALTHCARE MODELS
+// ============================================================
+
+// Table 2: elderlies — core patient entity
+model Elderly {
+  id             BigInt        @id @default(autoincrement())
+  organizationId BigInt        @map("organization_id")
+  citizenId      String?       @unique @db.VarChar(20) @map("citizen_id")
+  firstName      String?       @db.VarChar(255) @map("first_name")
+  lastName       String?       @db.VarChar(255) @map("last_name")
+  gender         Gender?
+  birthDate      DateTime?     @db.Date @map("birth_date")
+  age            Int?
+  phone          String?       @db.VarChar(50)
+  lineUserId     String?       @db.VarChar(255) @map("line_user_id")
+  address        String?       @db.Text
+  latitude       Decimal?      @db.Decimal(10, 8)
+  longitude      Decimal?      @db.Decimal(11, 8)
+  bloodType      String?       @db.VarChar(5) @map("blood_type")
+  weight         Decimal?      @db.Decimal(5, 2)
+  height         Decimal?      @db.Decimal(5, 2)
+  status         ElderlyStatus @default(ACTIVE)
+  caregiverName  String?       @db.VarChar(255) @map("caregiver_name")
+  caregiverPhone String?       @db.VarChar(50) @map("caregiver_phone")
+  createdBy      BigInt?       @map("created_by")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  organization      Organization      @relation(fields: [organizationId], references: [id])
+  diseases          Disease[]
+  medications       Medication[]
+  medicationLogs    MedicationLog[]
+  appointments      Appointment[]
+  caregivers        Caregiver[]
+  emergencyContacts EmergencyContact[]
+  riskScores        RiskScore[]
+  calls             Call[]
+  aiConversations   AiConversation[]
+  alerts            Alert[]
+  notifications     Notification[]
+  carePlans         CarePlan[]
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@map("elderlies")
+}
+
+// Table 3: diseases — chronic conditions per elderly
+model Disease {
+  id            BigInt           @id @default(autoincrement())
+  elderlyId     BigInt           @map("elderly_id")
+  diseaseCode   String?          @db.VarChar(50) @map("disease_code")
+  diseaseName   String?          @db.VarChar(255) @map("disease_name")
+  diagnosedDate DateTime?        @db.Date @map("diagnosed_date")
+  severity      DiseaseSeverity?
+  notes         String?          @db.Text
+  createdAt     DateTime         @default(now()) @map("created_at")
+
+  elderly Elderly @relation(fields: [elderlyId], references: [id])
+
+  @@index([elderlyId])
+  @@map("diseases")
+}
+
+// Table 4: medications — prescribed drugs per elderly
+model Medication {
+  id                  BigInt    @id @default(autoincrement())
+  elderlyId           BigInt    @map("elderly_id")
+  medicationName      String?   @db.VarChar(255) @map("medication_name")
+  dosage              String?   @db.VarChar(100)
+  frequency           String?   @db.VarChar(100)
+  scheduleTime        DateTime? @db.Time @map("schedule_time")
+  startDate           DateTime? @db.Date @map("start_date")
+  endDate             DateTime? @db.Date @map("end_date")
+  prescribingHospital String?   @db.VarChar(255) @map("prescribing_hospital")
+  isActive            Boolean   @default(true) @map("is_active")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  elderly        Elderly         @relation(fields: [elderlyId], references: [id])
+  medicationLogs MedicationLog[]
+
+  @@index([elderlyId])
+  @@map("medications")
+}
+
+// Table 17: medication_logs — daily intake tracking
+model MedicationLog {
+  id            BigInt               @id @default(autoincrement())
+  medicationId  BigInt               @map("medication_id")
+  elderlyId     BigInt               @map("elderly_id")
+  scheduledTime DateTime?            @map("scheduled_time")
+  takenTime     DateTime?            @map("taken_time")
+  status        MedicationLogStatus
+  source        MedicationLogSource?
+  notes         String?              @db.Text
+  createdAt     DateTime             @default(now()) @map("created_at")
+
+  medication Medication @relation(fields: [medicationId], references: [id])
+  elderly    Elderly    @relation(fields: [elderlyId], references: [id])
+
+  @@index([medicationId])
+  @@index([elderlyId])
+  @@map("medication_logs")
+}
+
+// Table 5: appointments — hospital visit schedule
+model Appointment {
+  id                  BigInt             @id @default(autoincrement())
+  elderlyId           BigInt             @map("elderly_id")
+  hospitalName        String?            @db.VarChar(255) @map("hospital_name")
+  department          String?            @db.VarChar(255)
+  doctorName          String?            @db.VarChar(255) @map("doctor_name")
+  appointmentDatetime DateTime?          @map("appointment_datetime")
+  purpose             String?            @db.Text
+  status              AppointmentStatus?
+  createdAt           DateTime           @default(now()) @map("created_at")
+
+  elderly              Elderly               @relation(fields: [elderlyId], references: [id])
+  appointmentReminders AppointmentReminder[]
+
+  @@index([elderlyId])
+  @@map("appointments")
+}
+
+// Table 18: appointment_reminders — reminder dispatch history
+model AppointmentReminder {
+  id               BigInt           @id @default(autoincrement())
+  appointmentId    BigInt           @map("appointment_id")
+  reminderDatetime DateTime?        @map("reminder_datetime")
+  channel          ReminderChannel?
+  status           ReminderStatus   @default(PENDING)
+  sentAt           DateTime?        @map("sent_at")
+  createdAt        DateTime         @default(now()) @map("created_at")
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id])
+
+  @@index([appointmentId])
+  @@map("appointment_reminders")
+}
+
+// Table 14: caregivers — linked caregivers per elderly
+model Caregiver {
+  id           BigInt   @id @default(autoincrement())
+  elderlyId    BigInt   @map("elderly_id")
+  fullName     String?  @db.VarChar(255) @map("full_name")
+  relationship String?  @db.VarChar(100)
+  phone        String?  @db.VarChar(50)
+  lineUserId   String?  @db.VarChar(255) @map("line_user_id")
+  email        String?  @db.VarChar(255)
+  isPrimary    Boolean  @default(false) @map("is_primary")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  elderly Elderly @relation(fields: [elderlyId], references: [id])
+
+  @@index([elderlyId])
+  @@map("caregivers")
+}
+
+// Table 15: emergency_contacts — priority contacts per elderly
+model EmergencyContact {
+  id            BigInt   @id @default(autoincrement())
+  elderlyId     BigInt   @map("elderly_id")
+  contactName   String?  @db.VarChar(255) @map("contact_name")
+  relationship  String?  @db.VarChar(100)
+  phone         String?  @db.VarChar(50)
+  priorityOrder Int      @default(1) @map("priority_order")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  elderly Elderly @relation(fields: [elderlyId], references: [id])
+
+  @@index([elderlyId])
+  @@map("emergency_contacts")
+}
+
+// Table 16: care_plans — individualized care plans
+model CarePlan {
+  id             BigInt         @id @default(autoincrement())
+  organizationId BigInt         @map("organization_id")
+  elderlyId      BigInt         @map("elderly_id")
+  planName       String?        @db.VarChar(255) @map("plan_name")
+  description    String?        @db.Text
+  objectives     String?        @db.Text
+  startDate      DateTime?      @db.Date @map("start_date")
+  endDate        DateTime?      @db.Date @map("end_date")
+  status         CarePlanStatus @default(ACTIVE)
+  assignedUserId BigInt?        @map("assigned_user_id")
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  elderly      Elderly      @relation(fields: [elderlyId], references: [id])
+  assignedUser User?        @relation(fields: [assignedUserId], references: [id])
+
+  @@index([organizationId])
+  @@index([elderlyId])
+  @@map("care_plans")
+}
+
+// ============================================================
+// AI & CALL MODELS
+// ============================================================
+
+// Table 6: calls — outbound AI voice call records
+model Call {
+  id              BigInt     @id @default(autoincrement())
+  elderlyId       BigInt     @map("elderly_id")
+  phoneNumber     String?    @db.VarChar(50) @map("phone_number")
+  callType        CallType?  @map("call_type")
+  callStatus      CallStatus? @map("call_status")
+  durationSeconds Int?       @map("duration_seconds")
+  recordingUrl    String?    @db.Text @map("recording_url")
+  startedAt       DateTime?  @map("started_at")
+  endedAt         DateTime?  @map("ended_at")
+  createdAt       DateTime   @default(now()) @map("created_at")
+
+  elderly         Elderly          @relation(fields: [elderlyId], references: [id])
+  callTranscripts CallTranscript[]
+  aiConversations AiConversation[]
+
+  @@index([elderlyId])
+  @@map("calls")
+}
+
+// Table 7: call_transcripts — turn-by-turn AI dialogue
+model CallTranscript {
+  id              BigInt      @id @default(autoincrement())
+  callId          BigInt      @map("call_id")
+  speaker         SpeakerType
+  transcript      String?     @db.Text
+  confidenceScore Decimal?    @db.Decimal(5, 2) @map("confidence_score")
+  sentimentScore  Decimal?    @db.Decimal(5, 2) @map("sentiment_score")
+  createdAt       DateTime    @default(now()) @map("created_at")
+
+  call Call @relation(fields: [callId], references: [id])
+
+  @@index([callId])
+  @@map("call_transcripts")
+}
+
+// Table 19: ai_conversations — AI long-term memory & analysis
+model AiConversation {
+  id               BigInt            @id @default(autoincrement())
+  elderlyId        BigInt            @map("elderly_id")
+  callId           BigInt?           @map("call_id")
+  conversationType ConversationType? @map("conversation_type")
+  summary          String?           @db.Text
+  sentimentScore   Decimal?          @db.Decimal(5, 2) @map("sentiment_score")
+  lonelinessScore  Decimal?          @db.Decimal(5, 2) @map("loneliness_score")
+  depressionScore  Decimal?          @db.Decimal(5, 2) @map("depression_score")
+  riskScore        Decimal?          @db.Decimal(5, 2) @map("risk_score")
+  aiRecommendation String?           @db.Text @map("ai_recommendation")
+  createdAt        DateTime          @default(now()) @map("created_at")
+
+  elderly Elderly @relation(fields: [elderlyId], references: [id])
+  call    Call?   @relation(fields: [callId], references: [id])
+
+  @@index([elderlyId])
+  @@map("ai_conversations")
+}
+
+// Table 9: risk_scores — AI-calculated risk assessment
+model RiskScore {
+  id           BigInt     @id @default(autoincrement())
+  elderlyId    BigInt     @map("elderly_id")
+  score        Decimal?   @db.Decimal(5, 2)
+  riskLevel    RiskLevel? @map("risk_level")
+  factors      Json?
+  aiSummary    String?    @db.Text @map("ai_summary")
+  calculatedAt DateTime?  @map("calculated_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  elderly Elderly @relation(fields: [elderlyId], references: [id])
+
+  @@index([elderlyId])
+  @@index([elderlyId, calculatedAt])
+  @@map("risk_scores")
+}
+
+// ============================================================
+// OPERATIONS MODELS
+// ============================================================
+
+// Table 8: alerts — case management centre
+model Alert {
+  id             BigInt         @id @default(autoincrement())
+  elderlyId      BigInt         @map("elderly_id")
+  alertType      AlertType?     @map("alert_type")
+  severity       AlertSeverity?
+  title          String?        @db.VarChar(255)
+  description    String?        @db.Text
+  status         AlertStatus    @default(OPEN)
+  assignedUserId BigInt?        @map("assigned_user_id")
+  resolvedBy     BigInt?        @map("resolved_by")
+  resolvedAt     DateTime?      @map("resolved_at")
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  elderly       Elderly        @relation(fields: [elderlyId], references: [id])
+  assignedUser  User?          @relation("AssignedAlerts", fields: [assignedUserId], references: [id])
+  resolver      User?          @relation("ResolvedAlerts", fields: [resolvedBy], references: [id])
+  notifications Notification[]
+
+  @@index([elderlyId])
+  @@index([status, severity])
+  @@map("alerts")
+}
+
+// Table 11: notifications — multi-channel dispatch log
+model Notification {
+  id             BigInt               @id @default(autoincrement())
+  elderlyId      BigInt?              @map("elderly_id")
+  alertId        BigInt?              @map("alert_id")
+  channel        NotificationChannel?
+  recipient      String?              @db.VarChar(255)
+  subject        String?              @db.VarChar(255)
+  message        String?              @db.Text
+  deliveryStatus DeliveryStatus       @default(PENDING) @map("delivery_status")
+  sentAt         DateTime?            @map("sent_at")
+  createdAt      DateTime             @default(now()) @map("created_at")
+
+  elderly Elderly? @relation(fields: [elderlyId], references: [id])
+  alert   Alert?   @relation(fields: [alertId], references: [id])
+
+  @@index([elderlyId])
+  @@index([alertId])
+  @@map("notifications")
+}
+
+// Table 10: events — community activities per org
+model Event {
+  id              BigInt    @id @default(autoincrement())
+  organizationId  BigInt    @map("organization_id")
+  eventName       String?   @db.VarChar(255) @map("event_name")
+  description     String?   @db.Text
+  location        String?   @db.VarChar(255)
+  startDatetime   DateTime? @map("start_datetime")
+  endDatetime     DateTime? @map("end_datetime")
+  maxParticipants Int?      @map("max_participants")
+  createdBy       BigInt?   @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@map("events")
+}
+
+// ============================================================
+// ENTERPRISE MODELS
+// ============================================================
+
+// Table 12: audit_logs — immutable change trail (FR-16)
+model AuditLog {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt?  @map("user_id")
+  action    String?  @db.VarChar(255)
+  tableName String?  @db.VarChar(255) @map("table_name")
+  recordId  BigInt?  @map("record_id")
+  oldData   Json?    @map("old_data")
+  newData   Json?    @map("new_data")
+  ipAddress String?  @db.VarChar(100) @map("ip_address")
+  userAgent String?  @db.Text @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([tableName, recordId])
+  @@map("audit_logs")
+}
+
+// Table 21: report_jobs — async report generation queue
+model ReportJob {
+  id             BigInt          @id @default(autoincrement())
+  organizationId BigInt          @map("organization_id")
+  reportType     String?         @db.VarChar(100) @map("report_type")
+  parameters     Json?
+  status         ReportJobStatus @default(PENDING)
+  fileUrl        String?         @db.Text @map("file_url")
+  generatedBy    BigInt?         @map("generated_by")
+  generatedAt    DateTime?       @map("generated_at")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  generator    User?        @relation(fields: [generatedBy], references: [id])
+
+  @@index([organizationId])
+  @@map("report_jobs")
+}
+
+// Table 22: integrations — HOSxP / JHCIS / LINE connectors
+model Integration {
+  id              BigInt          @id @default(autoincrement())
+  organizationId  BigInt          @map("organization_id")
+  integrationType IntegrationType @map("integration_type")
+  configuration   Json?
+  isActive        Boolean         @default(true) @map("is_active")
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  organization    Organization     @relation(fields: [organizationId], references: [id])
+  integrationLogs IntegrationLog[]
+
+  @@index([organizationId])
+  @@map("integrations")
+}
+
+// Table 23: integration_logs — integration audit trail
+model IntegrationLog {
+  id              BigInt               @id @default(autoincrement())
+  integrationId   BigInt?              @map("integration_id")
+  requestPayload  Json?                @map("request_payload")
+  responsePayload Json?                @map("response_payload")
+  status          IntegrationLogStatus
+  createdAt       DateTime             @default(now()) @map("created_at")
+
+  integration Integration? @relation(fields: [integrationId], references: [id])
+
+  @@index([integrationId])
+  @@map("integration_logs")
+}
+
+// Table 24: role_permissions — RBAC module-level matrix
+model RolePermission {
+  id         BigInt   @id @default(autoincrement())
+  roleName   String   @db.VarChar(100) @map("role_name")
+  moduleName String   @db.VarChar(100) @map("module_name")
+  canView    Boolean? @default(false) @map("can_view")
+  canCreate  Boolean? @default(false) @map("can_create")
+  canUpdate  Boolean? @default(false) @map("can_update")
+  canDelete  Boolean? @default(false) @map("can_delete")
+
+  @@unique([roleName, moduleName])
+  @@map("role_permissions")
+}
+
+// Table 25: login_sessions — refresh token store
+model LoginSession {
+  id           BigInt    @id @default(autoincrement())
+  userId       BigInt?   @map("user_id")
+  refreshToken String?   @db.Text @map("refresh_token")
+  ipAddress    String?   @db.VarChar(100) @map("ip_address")
+  userAgent    String?   @db.Text @map("user_agent")
+  expiresAt    DateTime? @map("expires_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("login_sessions")
+}
+
+// Table 20: system_settings — per-tenant configuration store
+model SystemSetting {
+  id             BigInt   @id @default(autoincrement())
+  organizationId BigInt   @map("organization_id")
+  settingKey     String   @db.VarChar(255) @map("setting_key")
+  settingValue   Json?    @map("setting_value")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, settingKey])
+  @@index([organizationId])
+  @@map("system_settings")
+}
