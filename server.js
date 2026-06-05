@@ -6,7 +6,7 @@ const db = require("./db");
 const bcrypt = require('bcrypt');
 const { AccessToken, RoomServiceClient } = require('livekit-server-sdk');
 
-// Import Routes
+// Import Routes (legacy)
 const newsRoutes = require("./routes/news");
 const healthRoutes = require("./routes/health");
 const refreshNews = require("./routes/refreshNews");
@@ -15,10 +15,32 @@ const ordersRoutes = require("./routes/orders");
 // Import SOS System (ทำเป็น Router)
 const sosRoutes = require("./sos-messaging-system");
 
+// ── Enterprise API v1 Routes ──────────────────────────────────────────────────
+const authRoutes           = require("./routes/auth.routes");
+const elderlyRoutes        = require("./routes/elderly.routes");
+const diseaseRoutes        = require("./routes/disease.routes");
+const medicationRoutes     = require("./routes/medication.routes");
+const medicationLogRoutes  = require("./routes/medication-log.routes");
+const voiceRoutes          = require("./routes/voice.routes");
+const alertRoutes          = require("./routes/alert.routes");
+
+// ── Background Workers & Cron (BullMQ + node-cron) ───────────────────────────
+const { bootstrap } = require("./jobs/bootstrap");
+
 require("./cron");
 
 const app = express();
 app.use(cors());
+
+// ── Global BigInt serializer ──────────────────────────────────────────────────
+// Prisma returns BigInt for all id / FK columns. JSON.stringify throws on BigInt
+// by default, so we override res.json once here for the entire application.
+app.use((req, res, next) => {
+  const _json = res.json.bind(res);
+  res.json = (body) =>
+    _json(JSON.parse(JSON.stringify(body, (_, v) => (typeof v === 'bigint' ? v.toString() : v))));
+  next();
+});
 
 // ==========================================
 // 🚨 วาง LINE Webhook ไว้ตรงนี้ (ก่อน express.json)
@@ -119,6 +141,15 @@ app.post('/api/forget-password', async (req, res) => {
 app.use("/api/news", newsRoutes);
 app.use("/api/health", healthRoutes);
 app.use("/api/orders", ordersRoutes);
+
+// ── Enterprise API v1 ─────────────────────────────────────────────────────────
+app.use("/api/v1/auth",            authRoutes);
+app.use("/api/v1/elderlies",       elderlyRoutes);
+app.use("/api/v1/diseases",        diseaseRoutes);
+app.use("/api/v1/medications",     medicationRoutes);
+app.use("/api/v1/medication-logs", medicationLogRoutes);
+app.use("/api/v1/voice",          voiceRoutes);
+app.use("/api/v1/alerts",         alertRoutes);
 
 // ==========================================
 // 1. USERS API (จัดการผู้ใช้งานและคะแนน)
@@ -388,4 +419,6 @@ cron.schedule("0 7 * * *", async () => {
 const port = process.env.PORT || 4000;
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
+  // Start BullMQ workers and cron jobs after the HTTP server is bound
+  bootstrap();
 });
