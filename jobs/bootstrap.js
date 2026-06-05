@@ -15,6 +15,36 @@ function bootstrap() {
     return;
   }
 
+  // ── Verify Redis is reachable before loading BullMQ workers ──────────────
+  // On shared hosting (no Redis), workers would emit an uncaught ECONNREFUSED
+  // and crash the process before their own error listeners could attach.
+  const net = require('net');
+  const redisHost = process.env.REDIS_HOST || '127.0.0.1';
+  const redisPort = parseInt(process.env.REDIS_PORT || '6379', 10);
+
+  const probe = net.createConnection({ host: redisHost, port: redisPort });
+  probe.setTimeout(2000);
+
+  probe.on('connect', () => {
+    probe.destroy();
+    startWorkers();
+  });
+
+  probe.on('error', (err) => {
+    probe.destroy();
+    console.warn(
+      `[Bootstrap] Redis not reachable at ${redisHost}:${redisPort} (${err.code ?? err.message}). ` +
+      'Workers and queues are DISABLED. Set WORKERS_ENABLED=false to suppress this warning.'
+    );
+  });
+
+  probe.on('timeout', () => {
+    probe.destroy();
+    console.warn(`[Bootstrap] Redis probe timed out at ${redisHost}:${redisPort}. Workers DISABLED.`);
+  });
+}
+
+function startWorkers() {
   // ── BullMQ Workers ────────────────────────────────────────────────────────
   require('./voiceCall.worker');
   require('./notification.worker');
