@@ -14,8 +14,9 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev --url \"$DATABASE_URL\"",
+    "db:deploy": "prisma migrate deploy --url \"$DATABASE_URL\"",
+    "db:push": "prisma db push --url \"$DATABASE_URL\"",
     "db:seed": "ts-node prisma/seed.ts",
     "db:studio": "prisma studio"
   },
