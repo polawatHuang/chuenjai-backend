@@ -2,7 +2,7 @@
  * Full system test — run with: node --env-file=.env test-all.js
  */
 'use strict';
-const BASE = 'http://localhost:4000';
+const BASE = process.env.TEST_BASE_URL ?? 'http://news.หางานใกล้ฉัน.com:4000';
 
 async function req(method, path, body, token) {
   const headers = { 'Content-Type': 'application/json' };
