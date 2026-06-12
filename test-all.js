@@ -31,7 +31,7 @@ async function run() {
   console.log('\n── Auth ────────────────────────────────────');
   let token = '';
   try {
-    const r = await req('POST', '/api/v1/auth/login', { username: 'superadmin', password: 'Test1234!' });
+    const r = await req('POST', '/api/v1/auth/login', { username: 'superadmin', password: 'Admin@1234!' });
     const t = r.data.data?.token ?? r.data.data?.accessToken;
     if (r.ok && t) { token = t; pass('Login (superadmin)'); }
     else fail('Login (superadmin)', JSON.stringify(r.data).slice(0, 80));
