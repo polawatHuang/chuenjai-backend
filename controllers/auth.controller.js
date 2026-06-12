@@ -10,9 +10,21 @@ const { createAuditLog }   = require('../utils/audit');
 // ── Validation schemas ────────────────────────────────────────────────────────
 
 const loginSchema = z.object({
-  username: z.string().min(1, 'Username is required').max(100),
+  username: z.string().min(1, 'Username or phone is required').max(100),
   password: z.string().min(1, 'Password is required'),
 });
+
+// Phone number normalisation: 0812345678 → 0812345678, +66812345678 → 0812345678
+function normalizePhone(raw) {
+  let p = raw.replace(/[\s\-().]/g, '');
+  if (p.startsWith('+66')) p = '0' + p.slice(3);
+  if (p.startsWith('66') && p.length >= 11) p = '0' + p.slice(2);
+  return p;
+}
+
+function looksLikePhone(str) {
+  return /^[0+][\d\s\-().]{7,14}$/.test(str.trim());
+}
 
 const refreshSchema = z.object({
   refreshToken: z.string().min(1, 'Refresh token is required'),
@@ -57,34 +69,50 @@ const login = async (req, res) => {
 
   const { username, password } = parsed.data;
 
-  try {
-    const user = await prisma.user.findUnique({
-      where: { username },
+  const userSelect = {
+    id:           true,
+    organizationId: true,
+    username:     true,
+    passwordHash: true,
+    fullName:     true,
+    role:         true,
+    isActive:     true,
+    organization: {
       select: {
-        id:           true,
-        organizationId: true,
-        username:     true,
-        passwordHash: true,
-        fullName:     true,
-        role:         true,
-        isActive:     true,
-        organization: {
-          select: {
-            id:               true,
-            organizationName: true,
-            isActive:         true,
-            subscriptionEnd:  true,
-          },
-        },
+        id:               true,
+        organizationName: true,
+        isActive:         true,
+        subscriptionEnd:  true,
       },
-    });
+    },
+  };
+
+  try {
+    let user = null;
+
+    if (looksLikePhone(username)) {
+      // Login by phone number
+      const phone = normalizePhone(username.trim());
+      user = await prisma.user.findFirst({
+        where: { phone },
+        select: userSelect,
+      });
+    }
+
+    // Fall back to username lookup (also covers case where phone lookup found nothing)
+    if (!user) {
+      user = await prisma.user.findUnique({
+        where: { username },
+        select: userSelect,
+      });
+    }
 
     // Constant-time comparison to prevent user-enumeration timing attacks
     const passwordValid =
       user != null && (await bcrypt.compare(password, user.passwordHash));
 
     if (!user || !passwordValid) {
-      return failure(res, 'INVALID_CREDENTIALS', 'Username or password is incorrect', 401);
+      return failure(res, 'INVALID_CREDENTIALS', 'ชื่อผู้ใช้ / เบอร์โทร หรือรหัสผ่านไม่ถูกต้อง', 401);
     }
 
     if (!user.isActive) {
@@ -306,4 +334,76 @@ function normalizeIp(ip) {
   return ip.replace(/^::ffff:/, '');
 }
 
-module.exports = { login, refresh, logout, me };
+// ── POST /api/v1/auth/change-password ────────────────────────────────────────
+// Public reset: identify user by username/phone + set new password.
+// No old-password required — intended for admin-managed password resets.
+
+const changePasswordSchema = z.object({
+  identifier:  z.string().min(1, 'Username or phone is required').max(100),
+  newPassword: z.string().min(8, 'Password must be at least 8 characters').max(100),
+  confirmPassword: z.string().min(1, 'Please confirm your password'),
+}).refine(d => d.newPassword === d.confirmPassword, {
+  message: 'Passwords do not match',
+  path: ['confirmPassword'],
+});
+
+const changePassword = async (req, res) => {
+  const parsed = changePasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return failure(res, 'VALIDATION_ERROR', parsed.error.errors[0].message, 400);
+  }
+
+  const { identifier, newPassword } = parsed.data;
+
+  try {
+    // Resolve user by username or phone
+    let user = null;
+    if (looksLikePhone(identifier)) {
+      const phone = normalizePhone(identifier.trim());
+      user = await prisma.user.findFirst({
+        where: { phone },
+        select: { id: true, username: true, fullName: true, isActive: true },
+      });
+    }
+    if (!user) {
+      user = await prisma.user.findUnique({
+        where: { username: identifier },
+        select: { id: true, username: true, fullName: true, isActive: true },
+      });
+    }
+
+    if (!user) {
+      // Return generic message to avoid user enumeration
+      return failure(res, 'INVALID_CREDENTIALS', 'ไม่พบบัญชีผู้ใช้นี้ในระบบ', 404);
+    }
+
+    if (!user.isActive) {
+      return failure(res, 'ACCOUNT_DISABLED', 'บัญชีนี้ถูกระงับการใช้งาน', 403);
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    await prisma.user.update({
+      where: { id: user.id },
+      data:  { passwordHash },
+    });
+
+    // Revoke all existing sessions so old tokens no longer work
+    await prisma.loginSession.deleteMany({ where: { userId: user.id } });
+
+    await createAuditLog({
+      userId:    user.id,
+      action:    'PASSWORD_CHANGE',
+      tableName: 'users',
+      recordId:  user.id,
+      newData:   { username: user.username },
+      req,
+    });
+
+    return success(res, { message: 'เปลี่ยนรหัสผ่านสำเร็จ กรุณาเข้าสู่ระบบใหม่' });
+  } catch (err) {
+    console.error('[AuthController.changePassword]', err);
+    return failure(res, 'INTERNAL_ERROR', 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง', 500);
+  }
+};
+
+module.exports = { login, refresh, logout, me, changePassword };
