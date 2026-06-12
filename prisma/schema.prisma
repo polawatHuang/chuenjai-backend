@@ -17,6 +17,9 @@ enum Role {
   OFFICER
   NURSE
   VIEWER
+  DOCTOR
+  PHARMACIST
+  DEVELOPER
 }
 
 enum Gender {
@@ -35,6 +38,14 @@ enum DiseaseSeverity {
   LOW
   MEDIUM
   HIGH
+  CRITICAL
+}
+
+enum OcrStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
 }
 
 enum AppointmentStatus {
@@ -159,6 +170,76 @@ enum IntegrationType {
   FHIR
   LINE
   SMS
+  OEM
+}
+
+// ── Nutrition CRM Enums ───────────────────────────────────────────────────────
+
+enum LabResultStatus {
+  NORMAL
+  BORDERLINE
+  ABNORMAL
+  CRITICAL
+}
+
+enum OemOrderStatus {
+  DRAFT
+  SUBMITTED
+  IN_PRODUCTION
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum ConsentType {
+  PDPA
+  HIPAA
+  MARKETING
+  RESEARCH
+}
+
+enum ConsentAction {
+  GIVEN
+  WITHDRAWN
+  UPDATED
+}
+
+enum ChatRouteAction {
+  ROUTE_TO_PHARMACIST
+  ROUTE_TO_NURSE
+  ROUTE_TO_ADMIN
+  AUTO_REPLY
+}
+
+enum BroadcastStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum PatientSubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  PENDING_RENEWAL
+}
+
+enum JourneyStage {
+  ONBOARDING
+  ACTIVE
+  RECALL_DUE
+  RENEWAL_PENDING
+  CHURNED
+}
+
+enum VideoConsultationStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
 }
 
 enum IntegrationLogStatus {
@@ -201,13 +282,20 @@ model Organization {
   createdAt         DateTime          @default(now()) @map("created_at")
   updatedAt         DateTime          @updatedAt @map("updated_at")
 
-  users          User[]
-  elderlies      Elderly[]
-  events         Event[]
-  systemSettings SystemSetting[]
-  carePlans      CarePlan[]
-  reportJobs     ReportJob[]
-  integrations   Integration[]
+  users               User[]
+  elderlies           Elderly[]
+  events              Event[]
+  systemSettings      SystemSetting[]
+  carePlans           CarePlan[]
+  reportJobs          ReportJob[]
+  integrations        Integration[]
+  labPanels           LabPanel[]
+  ingredients         Ingredient[]
+  chatRoutes          ChatRoute[]
+  richMenuConfigs     RichMenuConfig[]
+  broadcastCampaigns  BroadcastCampaign[]
+  medicalDocuments    MedicalDocument[]
+  lineConversations   LineConversation[]
 
   @@map("organizations")
 }
@@ -227,13 +315,16 @@ model User {
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  organization    Organization   @relation(fields: [organizationId], references: [id])
-  auditLogs       AuditLog[]
-  assignedAlerts  Alert[]        @relation("AssignedAlerts")
-  resolvedAlerts  Alert[]        @relation("ResolvedAlerts")
-  assignedPlans   CarePlan[]
-  loginSessions   LoginSession[]
-  reportJobs      ReportJob[]
+  organization          Organization         @relation(fields: [organizationId], references: [id])
+  auditLogs             AuditLog[]
+  assignedAlerts        Alert[]              @relation("AssignedAlerts")
+  resolvedAlerts        Alert[]              @relation("ResolvedAlerts")
+  assignedPlans         CarePlan[]
+  loginSessions         LoginSession[]
+  reportJobs            ReportJob[]
+  videoConsultations    VideoConsultation[]
+  approvedFormulations  Formulation[]        @relation("ApprovedFormulations")
+  createdFormulations   Formulation[]        @relation("CreatedFormulations")
 
   @@index([organizationId])
   @@map("users")
@@ -258,29 +349,42 @@ model Elderly {
   address        String?       @db.Text
   latitude       Decimal?      @db.Decimal(10, 8)
   longitude      Decimal?      @db.Decimal(11, 8)
-  bloodType      String?       @db.VarChar(5) @map("blood_type")
-  weight         Decimal?      @db.Decimal(5, 2)
-  height         Decimal?      @db.Decimal(5, 2)
-  status         ElderlyStatus @default(ACTIVE)
+  bloodType               String?       @db.VarChar(5) @map("blood_type")
+  weight                  Decimal?      @db.Decimal(5, 2)
+  height                  Decimal?      @db.Decimal(5, 2)
+  bloodPressureSystolic   Int?          @map("blood_pressure_systolic")
+  bloodPressureDiastolic  Int?          @map("blood_pressure_diastolic")
+  bloodSugar              Decimal?      @db.Decimal(6, 2) @map("blood_sugar")
+  status                  ElderlyStatus @default(ACTIVE)
   caregiverName  String?       @db.VarChar(255) @map("caregiver_name")
   caregiverPhone String?       @db.VarChar(50) @map("caregiver_phone")
   createdBy      BigInt?       @map("created_by")
   createdAt      DateTime      @default(now()) @map("created_at")
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
-  organization      Organization      @relation(fields: [organizationId], references: [id])
-  diseases          Disease[]
-  medications       Medication[]
-  medicationLogs    MedicationLog[]
-  appointments      Appointment[]
-  caregivers        Caregiver[]
-  emergencyContacts EmergencyContact[]
-  riskScores        RiskScore[]
-  calls             Call[]
-  aiConversations   AiConversation[]
-  alerts            Alert[]
-  notifications     Notification[]
-  carePlans         CarePlan[]
+  organization         Organization        @relation(fields: [organizationId], references: [id])
+  diseases             Disease[]
+  medications          Medication[]
+  medicationLogs       MedicationLog[]
+  appointments         Appointment[]
+  caregivers           Caregiver[]
+  emergencyContacts    EmergencyContact[]
+  riskScores           RiskScore[]
+  calls                Call[]
+  aiConversations      AiConversation[]
+  alerts               Alert[]
+  notifications        Notification[]
+  carePlans            CarePlan[]
+  labResults           LabResult[]
+  lifestyleLogs        LifestyleLog[]
+  allergies            PatientAllergy[]
+  formulations         Formulation[]
+  subscriptions        PatientSubscription[]
+  oemOrders            OemOrder[]
+  videoConsultations   VideoConsultation[]
+  consentRecords       ConsentRecord[]
+  medicalDocuments     MedicalDocument[]
+  lineConversations    LineConversation[]
 
   @@index([organizationId])
   @@index([organizationId, status])
@@ -704,4 +808,425 @@ model SystemSetting {
   @@unique([organizationId, settingKey])
   @@index([organizationId])
   @@map("system_settings")
+}
+
+// ============================================================
+// NUTRITION CRM MODELS — Module 1: Lab & Patient Profile
+// ============================================================
+
+// lab_panels — named test panels (e.g. "Complete Blood Count", "Hormone Panel")
+model LabPanel {
+  id             BigInt   @id @default(autoincrement())
+  organizationId BigInt   @map("organization_id")
+  panelName      String   @db.VarChar(255) @map("panel_name")
+  panelCode      String?  @db.VarChar(50)  @map("panel_code")
+  description    String?  @db.Text
+  isActive       Boolean  @default(true)   @map("is_active")
+  createdAt      DateTime @default(now())  @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  labResults   LabResult[]
+
+  @@index([organizationId])
+  @@map("lab_panels")
+}
+
+// lab_results — patient blood/DNA/hormone test records
+model LabResult {
+  id             BigInt          @id @default(autoincrement())
+  elderlyId      BigInt          @map("elderly_id")
+  organizationId BigInt          @map("organization_id")
+  panelId        BigInt?         @map("panel_id")
+  collectedAt    DateTime        @map("collected_at")
+  reportedAt     DateTime?       @map("reported_at")
+  labName        String?         @db.VarChar(255) @map("lab_name")
+  lisRefId       String?         @db.VarChar(255) @map("lis_ref_id")
+  status         LabResultStatus @default(NORMAL)
+  results        Json
+  dnaData        Json?           @map("dna_data")
+  hormoneData    Json?           @map("hormone_data")
+  notes          String?         @db.Text
+  uploadedBy     BigInt?         @map("uploaded_by")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  elderly Elderly   @relation(fields: [elderlyId], references: [id])
+  panel   LabPanel? @relation(fields: [panelId], references: [id])
+
+  @@index([elderlyId])
+  @@index([elderlyId, collectedAt])
+  @@map("lab_results")
+}
+
+// patient_allergies — allergen & contraindication flags
+model PatientAllergy {
+  id        BigInt        @id @default(autoincrement())
+  elderlyId BigInt        @map("elderly_id")
+  allergen  String        @db.VarChar(255)
+  severity  AlertSeverity
+  reaction  String?       @db.Text
+  notes     String?       @db.Text
+  isActive  Boolean       @default(true) @map("is_active")
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  elderly Elderly @relation(fields: [elderlyId], references: [id])
+
+  @@index([elderlyId])
+  @@map("patient_allergies")
+}
+
+// lifestyle_logs — daily food/sleep/mood/IoT data from LINE or wearables
+model LifestyleLog {
+  id         BigInt   @id @default(autoincrement())
+  elderlyId  BigInt   @map("elderly_id")
+  logDate    DateTime @db.Date @map("log_date")
+  source     String   @db.VarChar(50)
+  foodData   Json?    @map("food_data")
+  sleepData  Json?    @map("sleep_data")
+  moodScore  Int?     @map("mood_score")
+  stepsCount Int?     @map("steps_count")
+  heartRate  Int?     @map("heart_rate")
+  hrv        Decimal? @db.Decimal(6, 2)
+  rawPayload Json?    @map("raw_payload")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  elderly Elderly @relation(fields: [elderlyId], references: [id])
+
+  @@index([elderlyId, logDate])
+  @@map("lifestyle_logs")
+}
+
+// ============================================================
+// NUTRITION CRM MODELS — Module 4: Formulation Desk
+// ============================================================
+
+// ingredients — supplement ingredient catalog per organization
+model Ingredient {
+  id                BigInt   @id @default(autoincrement())
+  organizationId    BigInt   @map("organization_id")
+  oemIngredientId   String?  @db.VarChar(255) @map("oem_ingredient_id")
+  name              String   @db.VarChar(255)
+  category          String?  @db.VarChar(100)
+  unit              String   @db.VarChar(20) @default("mg")
+  minDoseMg         Decimal? @db.Decimal(8, 2) @map("min_dose_mg")
+  maxDoseMg         Decimal? @db.Decimal(8, 2) @map("max_dose_mg")
+  contraindications Json?    @map("contraindications")
+  description       String?  @db.Text
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  items        FormulationItem[]
+
+  @@index([organizationId])
+  @@map("ingredients")
+}
+
+// formulations — custom supplement formula per patient (versioned every 3 months)
+model Formulation {
+  id             BigInt    @id @default(autoincrement())
+  organizationId BigInt    @map("organization_id")
+  elderlyId      BigInt    @map("elderly_id")
+  labResultId    BigInt?   @map("lab_result_id")
+  version        Int       @default(1)
+  name           String?   @db.VarChar(255)
+  aiNotes        String?   @db.Text @map("ai_notes")
+  doctorNotes    String?   @db.Text @map("doctor_notes")
+  createdBy      BigInt?   @map("created_by")
+  approvedBy     BigInt?   @map("approved_by")
+  approvedAt     DateTime? @map("approved_at")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  elderly    Elderly           @relation(fields: [elderlyId], references: [id])
+  creator    User?             @relation("CreatedFormulations", fields: [createdBy], references: [id])
+  approver   User?             @relation("ApprovedFormulations", fields: [approvedBy], references: [id])
+  items      FormulationItem[]
+  oemOrders  OemOrder[]
+
+  @@index([elderlyId])
+  @@index([elderlyId, isActive])
+  @@map("formulations")
+}
+
+// formulation_items — individual ingredients with dosage in a formulation
+model FormulationItem {
+  id            BigInt   @id @default(autoincrement())
+  formulationId BigInt   @map("formulation_id")
+  ingredientId  BigInt   @map("ingredient_id")
+  doseMg        Decimal  @db.Decimal(8, 2) @map("dose_mg")
+  frequency     String?  @db.VarChar(100)
+  notes         String?  @db.Text
+  sortOrder     Int      @default(0) @map("sort_order")
+
+  formulation Formulation @relation(fields: [formulationId], references: [id], onDelete: Cascade)
+  ingredient  Ingredient  @relation(fields: [ingredientId], references: [id])
+
+  @@index([formulationId])
+  @@map("formulation_items")
+}
+
+// ============================================================
+// NUTRITION CRM MODELS — Module 2: Journey & Subscription
+// ============================================================
+
+// patient_subscriptions — 90-day cycle subscription per patient
+model PatientSubscription {
+  id             BigInt                    @id @default(autoincrement())
+  organizationId BigInt                    @map("organization_id")
+  elderlyId      BigInt                    @map("elderly_id")
+  formulationId  BigInt?                   @map("formulation_id")
+  planName       String                    @db.VarChar(255) @map("plan_name")
+  status         PatientSubscriptionStatus @default(ACTIVE)
+  stage          JourneyStage              @default(ONBOARDING)
+  startDate      DateTime                  @db.Date @map("start_date")
+  endDate        DateTime?                 @db.Date @map("end_date")
+  cycleDays      Int                       @default(90) @map("cycle_days")
+  priceThb       Decimal                   @db.Decimal(10, 2) @map("price_thb")
+  paymentRef     String?                   @db.VarChar(255) @map("payment_ref")
+  deliveryStatus String?                   @db.VarChar(50) @map("delivery_status")
+  recallSentAt   DateTime?                 @map("recall_sent_at")
+  renewalDueAt   DateTime?                 @db.Date @map("renewal_due_at")
+  createdAt      DateTime                  @default(now()) @map("created_at")
+  updatedAt      DateTime                  @updatedAt @map("updated_at")
+
+  elderly Elderly @relation(fields: [elderlyId], references: [id])
+
+  @@index([elderlyId])
+  @@index([status, renewalDueAt])
+  @@map("patient_subscriptions")
+}
+
+// oem_orders — manufacturing orders sent to OEM supplement factory
+model OemOrder {
+  id                BigInt         @id @default(autoincrement())
+  organizationId    BigInt         @map("organization_id")
+  elderlyId         BigInt         @map("elderly_id")
+  formulationId     BigInt         @map("formulation_id")
+  subscriptionId    BigInt?        @map("subscription_id")
+  oemOrderRef       String?        @db.VarChar(255) @map("oem_order_ref")
+  status            OemOrderStatus @default(DRAFT)
+  submittedAt       DateTime?      @map("submitted_at")
+  estimatedDelivery DateTime?      @db.Date @map("estimated_delivery")
+  trackingNumber    String?        @db.VarChar(255) @map("tracking_number")
+  oemResponse       Json?          @map("oem_response")
+  totalCostThb      Decimal?       @db.Decimal(10, 2) @map("total_cost_thb")
+  notes             String?        @db.Text
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  elderly     Elderly     @relation(fields: [elderlyId], references: [id])
+  formulation Formulation @relation(fields: [formulationId], references: [id])
+
+  @@index([elderlyId])
+  @@index([status])
+  @@map("oem_orders")
+}
+
+// ============================================================
+// NUTRITION CRM MODELS — Module 5: Tele-Health
+// ============================================================
+
+// video_consultations — virtual clinic sessions (LiveKit rooms)
+model VideoConsultation {
+  id                    BigInt                  @id @default(autoincrement())
+  organizationId        BigInt                  @map("organization_id")
+  elderlyId             BigInt                  @map("elderly_id")
+  doctorUserId          BigInt                  @map("doctor_user_id")
+  roomName              String                  @db.VarChar(255) @map("room_name")
+  scheduledAt           DateTime                @map("scheduled_at")
+  startedAt             DateTime?               @map("started_at")
+  endedAt               DateTime?               @map("ended_at")
+  durationSeconds       Int?                    @map("duration_seconds")
+  recordingUrl          String?                 @db.Text @map("recording_url")
+  consultationNotes     String?                 @db.Text @map("consultation_notes")
+  formulationAdjusted   Boolean                 @default(false) @map("formulation_adjusted")
+  newFormulationId      BigInt?                 @map("new_formulation_id")
+  status                VideoConsultationStatus @default(SCHEDULED)
+  createdAt             DateTime                @default(now()) @map("created_at")
+  updatedAt             DateTime                @updatedAt @map("updated_at")
+
+  elderly Elderly @relation(fields: [elderlyId], references: [id])
+  doctor  User    @relation(fields: [doctorUserId], references: [id])
+
+  @@index([elderlyId])
+  @@index([doctorUserId, scheduledAt])
+  @@map("video_consultations")
+}
+
+// ============================================================
+// NUTRITION CRM MODELS — Module 3: LINE OA Messaging Hub
+// ============================================================
+
+// chat_routes — keyword-based routing rules for incoming LINE messages
+model ChatRoute {
+  id             BigInt          @id @default(autoincrement())
+  organizationId BigInt          @map("organization_id")
+  keyword        String          @db.VarChar(255)
+  matchType      String          @db.VarChar(20) @default("CONTAINS") @map("match_type")
+  action         ChatRouteAction
+  targetUserId   BigInt?         @map("target_user_id")
+  autoReplyText  String?         @db.Text @map("auto_reply_text")
+  priority       Int             @default(0)
+  isActive       Boolean         @default(true) @map("is_active")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, isActive])
+  @@map("chat_routes")
+}
+
+// rich_menu_configs — dynamic LINE rich menu configurations per subscription status
+model RichMenuConfig {
+  id               BigInt   @id @default(autoincrement())
+  organizationId   BigInt   @map("organization_id")
+  name             String   @db.VarChar(255)
+  lineRichMenuId   String?  @db.VarChar(255) @map("line_rich_menu_id")
+  triggerCondition Json?    @map("trigger_condition")
+  menuImageUrl     String?  @db.Text @map("menu_image_url")
+  menuConfig       Json?    @map("menu_config")
+  isDefault        Boolean  @default(false) @map("is_default")
+  isActive         Boolean  @default(true)  @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@map("rich_menu_configs")
+}
+
+// broadcast_campaigns — segmented LINE broadcast campaigns
+model BroadcastCampaign {
+  id               BigInt          @id @default(autoincrement())
+  organizationId   BigInt          @map("organization_id")
+  name             String          @db.VarChar(255)
+  segmentCriteria  Json?           @map("segment_criteria")
+  messageContent   Json            @map("message_content")
+  status           BroadcastStatus @default(DRAFT)
+  scheduledAt      DateTime?       @map("scheduled_at")
+  sentAt           DateTime?       @map("sent_at")
+  createdBy        BigInt?         @map("created_by")
+  totalRecipients  Int             @default(0) @map("total_recipients")
+  sentCount        Int             @default(0) @map("sent_count")
+  failedCount      Int             @default(0) @map("failed_count")
+  readCount        Int             @default(0) @map("read_count")
+  createdAt        DateTime        @default(now()) @map("created_at")
+
+  organization Organization        @relation(fields: [organizationId], references: [id])
+  recipients   BroadcastRecipient[]
+
+  @@index([organizationId, status])
+  @@map("broadcast_campaigns")
+}
+
+// broadcast_recipients — individual send records for a campaign
+model BroadcastRecipient {
+  id           BigInt         @id @default(autoincrement())
+  campaignId   BigInt         @map("campaign_id")
+  elderlyId    BigInt         @map("elderly_id")
+  lineUserId   String?        @db.VarChar(255) @map("line_user_id")
+  status       DeliveryStatus @default(PENDING)
+  sentAt       DateTime?      @map("sent_at")
+  errorMessage String?        @db.Text @map("error_message")
+
+  campaign BroadcastCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@map("broadcast_recipients")
+}
+
+// ============================================================
+// NUTRITION CRM MODELS — Module 7: Compliance & Consent
+// ============================================================
+
+// consent_records — PDPA/HIPAA consent history (immutable)
+model ConsentRecord {
+  id              BigInt        @id @default(autoincrement())
+  organizationId  BigInt        @map("organization_id")
+  elderlyId       BigInt        @map("elderly_id")
+  consentType     ConsentType   @map("consent_type")
+  action          ConsentAction
+  consentVersion  String?       @db.VarChar(50) @map("consent_version")
+  consentText     String?       @db.Text @map("consent_text")
+  collectedVia    String?       @db.VarChar(50) @map("collected_via")
+  ipAddress       String?       @db.VarChar(100) @map("ip_address")
+  witnessUserId   BigInt?       @map("witness_user_id")
+  evidenceUrl     String?       @db.Text @map("evidence_url")
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  elderly Elderly @relation(fields: [elderlyId], references: [id])
+
+  @@index([elderlyId, consentType])
+  @@map("consent_records")
+}
+
+// medical_documents — encrypted document storage index
+model MedicalDocument {
+  id              BigInt    @id @default(autoincrement())
+  organizationId  BigInt    @map("organization_id")
+  elderlyId       BigInt?   @map("elderly_id")
+  documentType    String    @db.VarChar(50) @map("document_type")
+  // LAB_PDF | CONSENT_FORM | PRESCRIPTION | TAX_INVOICE | WEARABLE_EXPORT | OTHER
+  fileName        String    @db.VarChar(255) @map("file_name")
+  fileSizeBytes   BigInt?   @map("file_size_bytes")
+  mimeType        String?   @db.VarChar(100) @map("mime_type")
+  storageKey      String    @db.VarChar(500) @map("storage_key")
+  checksum        String?   @db.VarChar(64)
+  ocrStatus       String    @default("PENDING") @map("ocr_status")
+  // PENDING | PROCESSING | DONE | FAILED
+  ocrResultId     BigInt?   @map("ocr_result_id")
+  uploadedBy      BigInt?   @map("uploaded_by")
+  isDeleted       Boolean   @default(false) @map("is_deleted")
+  deletedAt       DateTime? @map("deleted_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  elderly      Elderly?     @relation(fields: [elderlyId], references: [id])
+
+  @@index([organizationId, documentType])
+  @@index([elderlyId])
+  @@map("medical_documents")
+}
+
+// line_conversations — one per LINE user per org (inbox thread)
+model LineConversation {
+  id              BigInt    @id @default(autoincrement())
+  organizationId  BigInt    @map("organization_id")
+  lineUserId      String    @db.VarChar(100) @map("line_user_id")
+  elderlyId       BigInt?   @map("elderly_id")
+  displayName     String?   @db.VarChar(255) @map("display_name")
+  pictureUrl      String?   @db.Text @map("picture_url")
+  lastMessageAt   DateTime? @map("last_message_at")
+  lastMessageText String?   @db.VarChar(500) @map("last_message_text")
+  unreadCount     Int       @default(0) @map("unread_count")
+  status          String    @default("OPEN") @db.VarChar(20)
+  assignedToId    BigInt?   @map("assigned_to_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  elderly      Elderly?      @relation(fields: [elderlyId], references: [id])
+  messages     LineMessage[]
+
+  @@unique([organizationId, lineUserId])
+  @@index([organizationId, lastMessageAt(sort: Desc)])
+  @@map("line_conversations")
+}
+
+// line_messages — individual messages in each conversation
+model LineMessage {
+  id              BigInt   @id @default(autoincrement())
+  conversationId  BigInt   @map("conversation_id")
+  direction       String   @db.VarChar(4)   // IN | OUT
+  messageType     String   @default("text") @db.VarChar(20) @map("message_type")
+  content         String   @db.Text
+  lineMessageId   String?  @db.VarChar(100) @map("line_message_id")
+  sentByUserId    BigInt?  @map("sent_by_user_id")
+  isRead          Boolean  @default(false) @map("is_read")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  conversation LineConversation @relation(fields: [conversationId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@map("line_messages")
 }

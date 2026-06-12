@@ -30,8 +30,10 @@ app.use("/api",            require("./routes/livekit.routes"));      // /api/get
 // ── Enterprise API v1 routes ──────────────────────────────────────────────────
 app.use("/api/v1/auth",            require("./routes/auth.routes"));
 app.use("/api/v1/elderlies",       require("./routes/elderly.routes"));
-app.use("/api/v1/diseases",        require("./routes/disease.routes"));
-app.use("/api/v1/medications",     require("./routes/medication.routes"));
+app.use("/api/v1/diseases",            require("./routes/disease.routes"));
+app.use("/api/v1/medications",         require("./routes/medication.routes"));
+app.use("/api/v1/caregivers",          require("./routes/caregiver.routes"));
+app.use("/api/v1/emergency-contacts",  require("./routes/emergency-contact.routes"));
 app.use("/api/v1/medication-logs", require("./routes/medication-log.routes"));
 app.use("/api/v1/voice",              require("./routes/voice.routes"));
 app.use("/api/v1/alerts",             require("./routes/alert.routes"));
@@ -43,5 +45,16 @@ app.use("/api/v1/notifications",      require("./routes/notification.routes"));
 app.use("/api/v1/reports",            require("./routes/report.routes"));
 app.use("/api/v1/settings",           require("./routes/settings.routes"));
 app.use("/api/v1/audit-logs",         require("./routes/audit-log.routes"));
+
+// ── Nutrition CRM v1 routes ───────────────────────────────────────────────────
+app.use("/api/v1/patients",           require("./routes/patient360.routes"));
+app.use("/api/v1/lab-results",        require("./routes/lab-results.routes"));
+app.use("/api/v1/formulations",       require("./routes/formulation.routes"));
+app.use("/api/v1/journey",            require("./routes/journey.routes"));
+app.use("/api/v1/messaging",          require("./routes/messaging.routes"));
+app.use("/api/v1/tele-health",        require("./routes/tele-health.routes"));
+app.use("/api/v1/consent",            require("./routes/consent.routes"));
+app.use("/api/v1/documents",          require("./routes/document.routes"));
+app.use("/api/v1/line-chat",          require("./routes/line-chat.routes"));
 
 module.exports = app;

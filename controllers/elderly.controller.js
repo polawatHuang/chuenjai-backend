@@ -24,12 +24,15 @@ const elderlySchema = z.object({
   address:       z.string().optional(),
   latitude:      z.number().optional(),
   longitude:     z.number().optional(),
-  bloodType:     z.string().max(5).optional(),
-  weight:        z.number().positive().optional(),
-  height:        z.number().positive().optional(),
-  status:        z.enum(['ACTIVE', 'INACTIVE', 'DECEASED']).optional(),
-  caregiverName: z.string().max(255).optional(),
-  caregiverPhone:z.string().max(50).optional(),
+  bloodType:               z.string().max(5).optional(),
+  weight:                  z.number().positive().optional(),
+  height:                  z.number().positive().optional(),
+  bloodPressureSystolic:   z.number().int().min(0).max(300).optional(),
+  bloodPressureDiastolic:  z.number().int().min(0).max(200).optional(),
+  bloodSugar:              z.number().min(0).optional(),
+  status:                  z.enum(['ACTIVE', 'INACTIVE', 'DECEASED']).optional(),
+  caregiverName:           z.string().max(255).optional(),
+  caregiverPhone:          z.string().max(50).optional(),
 });
 
 // ── Controllers ───────────────────────────────────────────────────────────────
